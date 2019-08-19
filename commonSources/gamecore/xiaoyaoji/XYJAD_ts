@@ -1,0 +1,184 @@
+import XYJAPI from "./XYJAPI";
+import { DeerAdVO } from "../deer/DeerSDK";
+
+
+
+/**
+ * 小幺鸡广告
+ * 
+ * 
+ * @see https://note.youdao.com/share/?id=0536d3a34e5ee21fb90335177600900f&type=note
+ */
+export default class XYJAD {
+
+
+    //猜你喜欢
+    private static _recommendGames: Array<any> = null;
+
+    public static get recommendGames(): Array<any> {
+        if (!XYJAD._initialized) XYJAD.init();
+
+        return XYJAD._recommendGames;
+    }
+
+    //爆款游戏
+    private static _hotGames: Array<any> = null;
+
+    public static get hotGames(): Array<any> {
+        if (!XYJAD._initialized) XYJAD.init();
+
+        return XYJAD._hotGames;
+    }
+
+    //死亡后推荐
+    private static _gameOverGames: Array<any> = null;
+
+    public static get gameOverGames(): Array<any> {
+        if (!XYJAD._initialized) XYJAD.init();
+
+        return XYJAD._gameOverGames;
+    }
+
+
+    private static _initialized:boolean = false;
+
+    public static init(): void {
+        if (!XYJAPI.userOpenID) return;
+
+        if (XYJAD._initialized) return;
+        XYJAD._initialized = true;
+
+        if (typeof wx == "undefined") return;
+
+        wx.request({
+            "url": "https://api.yz061.com/game/" + XYJAPI.flg,
+            "method": "GET",
+            "success": XYJAD.initSuccessCallback.bind(XYJAD),
+            "fail": XYJAD.initFailCallback.bind(XYJAD),
+        })
+    }
+
+
+
+    private static initSuccessCallback(res: any): void {
+        try {
+            let data: any = res["data"];
+
+            // "id": 24,
+            // "game_id": 4,
+            // "game_name": "疯狂挑战",
+            // "game_flg": "fff",
+            // "location_id": 14,
+            // "location_name": "猜你喜欢aaa",
+            // "location_flg": "cai",
+            // "matter_type": 1,
+            // "url": "http://api.xiaozi.com/matter/ad?id=24&gflg=fff&lflg=cai"
+            if (data.status != 1) {
+                this.initFailCallback(null);
+                return;
+            }
+
+            let locations: Array<any> = data["result"];
+
+            locations.forEach((loc: any) => {
+                let locName: string = loc["location_name"];
+                let url: string = loc["url"];
+
+                if (url.indexOf("?") != -1) url += "&uid=" + XYJAPI.userOpenID;
+                else url += "?uid=" + XYJAPI.userOpenID;
+
+                wx.request({
+                    "url": url,
+                    "success": (res: any) => {
+                        console.log("【小幺鸡】" + locName + " 广告");
+                        console.log(res);
+
+                        let adData: any = res["data"];
+                        if (adData) {
+                            let ads: Array<any> = adData["result"];
+                            if (ads && ads.length > 0) {
+                                ads.forEach((advo: any) => {
+                                    advo["__loc"] = loc;
+                                })
+
+                                if (locName == "猜你喜欢") {
+                                    XYJAD._recommendGames = ads;
+                                } else if (locName == "爆款游戏") {
+                                    XYJAD._hotGames = ads;
+                                } else if (locName == "死亡推荐") {
+                                    XYJAD._gameOverGames = ads;
+                                }
+                            }
+                        }
+                    }
+                });
+            })
+
+
+        } catch (error) {
+
+        }
+    }
+
+
+    private static _hasTryAgain: boolean = false;
+    private static initFailCallback(err: any): void {
+        if (XYJAD._hasTryAgain == false) {
+            XYJAD._hasTryAgain = true;
+
+            //10秒后再次尝试
+            setTimeout(XYJAD.init.bind(XYJAD), 10000);
+        }
+    }
+
+
+
+    /**
+     * 广告点击上报
+     * 
+     * @param adData 
+     */
+    public static adClickFeedback(adData: DeerAdVO): void {
+        if (!adData) return;
+
+        if (typeof wx == "undefined") return;
+
+        let gflg: string = adData["__loc"]["game_flg"];
+        let ad_id: string = adData["ad_id"];
+        let location_id: string = adData["__loc"]["location_id"];
+
+
+        let data: object = {
+            "gflg": gflg,
+            "uid": XYJAPI.userOpenID,
+            "ad_id": ad_id,
+            "location_id": location_id,
+        };
+
+
+        console.log("【小幺鸡】广告点击统计", data)
+
+
+        wx.request({
+            "url": "https://api.yz061.com/reportad",
+
+            // header: {
+            // },
+
+            "data": data,
+
+            method: "GET",
+
+            success: function (res: object): void {
+            },
+
+            fail: function (res: object): void {
+            },
+
+
+            complete: (res) => {
+            }
+
+        });
+    }
+}

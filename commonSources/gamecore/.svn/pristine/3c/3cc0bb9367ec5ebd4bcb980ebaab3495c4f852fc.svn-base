@@ -1,0 +1,373 @@
+import GameValues, { PlatformName } from "../base/GameValues";
+import WXOpenData from "./WXOpenData";
+import DeerSDK from "../deer/DeerSDK";
+
+// Learn TypeScript:
+//  - [Chinese] http://docs.cocos.com/creator/manual/zh/scripting/typescript.html
+//  - [English] http://www.cocos2d-x.org/docs/creator/manual/en/scripting/typescript.html
+// Learn Attribute:
+//  - [Chinese] http://docs.cocos.com/creator/manual/zh/scripting/reference/attributes.html
+//  - [English] http://www.cocos2d-x.org/docs/creator/manual/en/scripting/reference/attributes.html
+// Learn life-cycle callbacks:
+//  - [Chinese] http://docs.cocos.com/creator/manual/zh/scripting/life-cycle-callbacks.html
+//  - [English] http://www.cocos2d-x.org/docs/creator/manual/en/scripting/life-cycle-callbacks.html
+
+const { ccclass, property } = cc._decorator;
+
+
+//用户VIP字段
+export const USER_PROP_VIP: string = "userPropVIP";
+
+
+/**
+ * 微信用户相关接口库
+ */
+@ccclass
+export default class WXUser {
+
+    private static _lastCode: string;
+
+    public static get lastCode(): string {
+        return this._lastCode;
+    }
+
+    public static iv: string;
+
+    public static rawData: string;
+
+    public static encryptedData: string;
+
+    public static signature: string;
+
+    //是否正在登陆
+    private static _isLogining: boolean = false;
+
+
+    // static reset():void {
+    //     WXUser.code = null;
+    //     WXUser._userInfo = null;
+
+    //     WXUser._isLoggedIn = false;
+    //     WXUser._loginCallbacks = [];
+    //     WXUser._userInfoCallbacks = [];
+    // }
+
+    /**
+     * 用户登陆
+     */
+    static login(): void {
+        if (WXUser._isLogining === true) return;
+        if (typeof wx == "undefined") return;
+
+        console.log("----  WXUser ----");
+        console.log("-  login  -");
+
+        WXUser._isLogining = true;//标记正在登陆
+
+        wx.login({
+            success: function (res) {
+                console.log("login success");
+                console.log(res);
+                WXUser._lastCode = res["code"];
+
+                WXUser.doLoginCallback();
+
+                //尝试获取用户信息
+                WXUser.tryToGetUserInfo();
+            },
+
+            fail: function (err) {
+                WXUser._isLogining = false;
+            },
+
+            complete: function () {
+                WXUser._isLogining = false;
+            }
+        });
+    }
+
+
+
+    private static _loginCallbacks: Array<Function> = [];
+
+
+    /**
+     * 登陆成功后回调
+     * 
+     * @param fun 
+     */
+    public static onLogin(fun: Function): void {
+        if (WXUser._loginCallbacks.indexOf(fun) == -1) {
+            WXUser._loginCallbacks.push(fun);
+        }
+    }
+
+
+    /**
+     * 移除登陆成功后回调
+     * 
+     * @param fun 
+     */
+    public static offLogin(fun: Function): void {
+        let index: number = WXUser._loginCallbacks.indexOf(fun);
+        if (index >= 0) WXUser._loginCallbacks.splice(index, 1);
+    }
+
+
+    private static doLoginCallback(): void {
+        if (!WXUser._lastCode) return;
+
+        //回调
+        if (WXUser._loginCallbacks.length > 0) {
+            this._loginCallbacks.forEach((fun: Function) => {
+                fun(WXUser._lastCode);
+            })
+            this._loginCallbacks = [];
+        }
+
+        // if (WXUser._loginCallbacks.length == 0) return;
+        // let fun:Function = WXUser._loginCallbacks.shift();
+        // fun.call(null, WXUser._lastCode);
+
+        // if (WXUser._loginCallbacks.length > 0) WXUser.login();
+    }
+
+
+
+    //用户信息
+    private static _userInfo: { nickName: string, avatarUrl: string, gender: number, country: string, province: string, city: string } = null;
+
+
+    public static setUserInfoData(res): void {
+        console.log("------setUserInfoData-------")
+        console.log(res)
+        if (!res || !res["userInfo"]) return;
+
+        WXUser._userInfo = res["userInfo"];
+
+        WXUser.iv = res["iv"];
+        WXUser.rawData = res["rawData"];
+        WXUser.encryptedData = res["encryptedData"];
+        WXUser.signature = res["signature"];
+
+        try {
+              //回调
+        if (WXUser._userInfoCallbacks.length > 0) {
+            this._userInfoCallbacks.forEach((fun: Function) => {
+                fun();
+            })
+            this._userInfoCallbacks = [];
+        }
+        } catch (error) {
+            
+        }
+      
+
+        //释放所有按钮
+        WXUser.destroyAllUserInfoButtons();
+
+
+        // if (DeerSDK.instance.isReady) {
+        DeerSDK.instance.getWXUserInfo();
+        // }
+    }
+
+
+    private static _userInfoCallbacks: Array<Function> = [];
+
+
+    /**
+     * 获取用户成功后回调
+     * 
+     * @param fun 
+     */
+    public static onUserInfo(fun: Function): void {
+        if (WXUser._userInfo) {
+            fun()
+        } else {
+            if (WXUser._userInfoCallbacks.indexOf(fun) == -1) {
+                WXUser._userInfoCallbacks.push(fun);
+            }
+
+            WXUser.tryToGetUserInfo();
+        }
+    }
+
+
+    /**
+     * 移除用户信息成功回调
+     * 
+     * @param fun 
+     */
+    public static offUserInfo(fun: Function): void {
+        let index: number = WXUser._userInfoCallbacks.indexOf(fun);
+        if (index >= 0) WXUser._userInfoCallbacks.splice(index, 1);
+    }
+
+
+    private static _isTryingToGetUserInfo: boolean = false;
+
+    /**
+     * 尝试获取用户信息
+     * 
+     */
+    private static tryToGetUserInfo(): void {
+        if (WXUser._userInfo) return;
+
+        if (typeof wx == "undefined") return;
+
+        if (WXUser._isTryingToGetUserInfo) return;
+        WXUser._isTryingToGetUserInfo = true;
+
+        wx.getSetting({
+            success: (res) => {
+                console.log("wx.getSetting", JSON.stringify(res));
+
+                if (res.authSetting["scope.userInfo"]) {
+                    wx.getUserInfo({
+                        withCredentials: true,
+                        lang: "zh_CN",
+                        success: (res) => {
+                            WXUser.setUserInfoData(res);
+                        }
+                    });
+                }
+            },
+            complete: () => {
+                WXUser._isTryingToGetUserInfo = false;
+            }
+        })
+    }
+
+
+    /**
+     * 获取用户信息
+     * 
+     * avatarUrl: "https://wx.qlogo.cn/mmopen/vi_32/DYAIOgq83eqQSQwjEuu9SZySQFUTib2mUJW3ZytyjXAye34Jh5KUTBaicPMrnkkGtKBWZ3XrU3VXvJvYFvrXEK2Q/132"
+     * city: "Changsha"
+     * country: "China"
+     * gender: 1        1 男性, 2 女性
+     * language: "zh_CN"
+     * nickName:"laan"
+     * province: "Hunan"
+     * 
+     */
+    public static get userInfo(): { nickName: string, avatarUrl: string, gender: number, country: string, province: string, city: string } {
+        return WXUser._userInfo;
+    }
+
+
+    //所有生成的按钮
+    private static _userInfoButtons: Array<any> = [];
+
+    /**
+     * 创建授权按钮
+     * 
+     * @param   img
+     * @param   rect            显示按钮的屏幕区域
+     * @param   callback        回调方法
+     * 
+     */
+    public static createUserInfoButton(img: string, rect: cc.Rect, callback: Function = null): any {
+        if (typeof wx == "undefined") return;
+
+        let button = wx.createUserInfoButton({
+            type: 'image',
+            image: img,
+            withCredentials: true,
+            lang: "zh_CN",
+            style: {
+                left: rect.xMin,
+                top: rect.yMin,
+                width: rect.width,
+                height: rect.height,
+                lineHeight: 40
+            }
+        })
+
+
+        if (button) {
+            WXUser._userInfoButtons.push(button);
+
+            button.onTap((res) => {
+                console.log("user info button on tap");
+                console.log(res);
+
+                WXUser.setUserInfoData(res);
+
+                if (callback != null) {
+                    callback(res);
+                }
+            });
+        }
+
+
+        //QQ平台，直接获取用户数据
+        if (GameValues.currentPlatform == PlatformName.QQCM) {
+            if (!WXUser._userInfo) {
+                wx.getUserInfo({
+                    withCredentials: true,
+                    lang: "zh_CN",
+                    from: "#wx user#",
+                    success: (res) => {
+                        console.log("【用户信息按钮】获取用户信息成功")
+                        WXUser.setUserInfoData(res);
+                    }
+                });
+            }
+        }
+
+
+        return button;
+    }
+
+
+    /**
+     * 销毁按钮
+     * 
+     * @param btn 
+     */
+    public static destroyUserInfoButton(btn: any): void {
+        try {
+            btn.destroy();
+        } catch (error) {
+
+        }
+
+        let index: number = WXUser._userInfoButtons.indexOf(btn);
+        if (index >= 0) {
+            WXUser._userInfoButtons.splice(index, 1);
+        }
+    }
+
+
+    /**
+     * 释放所有用户信息按钮
+     */
+    public static destroyAllUserInfoButtons(): void {
+        WXUser._userInfoButtons.forEach((btn) => {
+            btn.destroy();
+        })
+
+        WXUser._userInfoButtons = [];
+    }
+
+
+
+    /**
+     * 将用户设置为VIP
+     */
+    public static setVIP(vip: boolean = true): void {
+        WXOpenData.saveUserDataToCloud(USER_PROP_VIP, vip ? "1" : "0");
+
+        //设置VIP
+        if (DeerSDK.instance.isReady) {
+            DeerSDK.instance.user_setVIP(vip);
+        }
+    }
+
+
+}
+
+
+

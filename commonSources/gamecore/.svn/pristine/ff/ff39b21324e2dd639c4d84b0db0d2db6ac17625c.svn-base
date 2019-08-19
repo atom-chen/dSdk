@@ -1,0 +1,11 @@
+{
+    "extends": "./tsconfig_pub_laya.json",
+
+    "compilerOptions": {
+        "outDir": "../release/1.9_pub_laya/ts",
+        "removeComments": false,
+        "declaration":true,
+        "emitDeclarationOnly":true
+    }
+    
+}

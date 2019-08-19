@@ -1,0 +1,293 @@
+import GameManager from "../managers/GameManager";
+import WXEventNames from "./WXEventNames";
+import Utils from "../managers/Utils";
+import { GameCoreLocation } from "../GameCoreLocation";
+import EventDispacher from "../managers/event/EventDispacher";
+import GameValues, { Orientation } from "../base/GameValues";
+import WXBannerAdBase from "./WXBannerAdBase";
+import DeerSDK, { DeerAdType, DeerAdVO } from "../deer/DeerSDK";
+import EventData from "../managers/event/EventData";
+import DeerSDKEventNames from "../deer/DeerSDKEventNames";
+import XYJAPI from "../xiaoyaoji/XYJAPI";
+
+// Learn TypeScript:
+//  - [Chinese] http://docs.cocos.com/creator/manual/zh/scripting/typescript.html
+//  - [English] http://www.cocos2d-x.org/docs/creator/manual/en/scripting/typescript.html
+// Learn Attribute:
+//  - [Chinese] http://docs.cocos.com/creator/manual/zh/scripting/reference/attributes.html
+//  - [English] http://www.cocos2d-x.org/docs/creator/manual/en/scripting/reference/attributes.html
+// Learn life-cycle callbacks:
+//  - [Chinese] http://docs.cocos.com/creator/manual/zh/scripting/life-cycle-callbacks.html
+//  - [English] http://www.cocos2d-x.org/docs/creator/manual/en/scripting/life-cycle-callbacks.html
+
+const { ccclass, property } = cc._decorator;
+
+/**
+ * 小鹿科技条形广告
+ * 
+ */
+@ccclass
+export default class DeerBannerAd extends WXBannerAdBase {
+
+
+
+    private static _bannerAds: Array<DeerAdVO>;
+
+    /**
+     * 当前广告数据
+     */
+    private static _currentBannerAd: DeerAdVO;
+
+
+    //广告数据
+    private _adData:DeerAdVO;
+
+    /**
+     * 加载广告数据
+     */
+    private loadAdData(): void {
+        if (DeerSDK.instance.isReady) {
+            this.deerSDKReadyHandler(null)
+        } else {
+            DeerSDK.instance.addEventListener(DeerSDKEventNames.READY, this.deerSDKReadyHandler, this);
+        }
+
+    }
+
+
+    private deerSDKReadyHandler(e: EventData): void {
+        DeerSDK.instance.removeEventListener(DeerSDKEventNames.READY, this.deerSDKReadyHandler, this);
+
+        //获取广告数据
+        DeerSDK.instance.ad_getAdData(DeerAdType.BANNER, this.loadAdDataHandler.bind(this), this.loadAdDataErrorHandler.bind(this));
+    }
+
+
+    private loadAdDataHandler(ads: Array<DeerAdVO>): void {
+        if (ads && ads.length > 0) {
+            if (!DeerBannerAd._bannerAds) DeerBannerAd._bannerAds = ads;
+
+            if (DeerBannerAd._bannerAds.length > 0) {
+                let index: number = DeerBannerAd._bannerAds.indexOf(DeerBannerAd._currentBannerAd);
+                index++;
+                if (index >= DeerBannerAd._bannerAds.length) index = 0;
+                
+                DeerBannerAd._currentBannerAd = DeerBannerAd._bannerAds[index]
+                this._adData = DeerBannerAd._currentBannerAd;
+
+                //显示广告
+                this.showAdData();
+            }
+        }
+    }
+
+
+    private loadAdDataErrorHandler(): void {
+        this.dispatchEventWith(WXEventNames.BANNER_AD_ERROR);
+        this.destory();
+    }
+
+    /**
+     * 
+     * 
+     */
+    protected createAd(): void {
+        if (this._destoried) return;
+        if (this._bannerAd) return;
+
+        let adNode: cc.Node = new cc.Node();
+        adNode.on(cc.Node.EventType.TOUCH_END, this.adTapHandler, this);
+        let sprite: cc.Sprite = adNode.addComponent(cc.Sprite);
+
+        this._bannerAd = adNode;
+
+        cc.director.getScene().addChild(adNode);
+
+        this.loadAdData();
+    }
+
+
+
+    /**
+     * 点击
+     */
+    private adTapHandler(e:cc.Event):void {
+        if (this._adData) {
+            //广告跳转
+            this._adData.navigate();
+        }
+    }
+
+
+    /**
+     * 显示广告
+     */
+    private showAdData(): void {
+        if (!this._adData || !this._bannerAd) return;
+
+        cc.loader.load({ "url": this._adData.bannerImg, "type": "png" }, (error, texture) => {
+            if (texture) {
+                if (!this._bannerAd) return;
+
+                let adNode: cc.Node = this._bannerAd as cc.Node;
+                let sprite: cc.Sprite = adNode.getComponent(cc.Sprite);
+
+                sprite.spriteFrame = new cc.SpriteFrame();
+                sprite.spriteFrame = new cc.SpriteFrame(texture);
+                adNode.width = texture.width;
+                adNode.height = texture.height;
+
+                this.relayout();
+            }
+
+            //发送展现统计
+            if (this._adData) this._adData.reportShown();
+        });
+    }
+
+
+    /**
+     * 重新布局
+     */
+    public relayout(): void {
+        console.log("----  Deer Banner广告 ----");
+        console.log("-  relayout  -");
+        console.log(this._bannerAd);
+
+        if (!this._bannerAd) return;
+
+
+        let adNode: cc.Node = this._bannerAd as cc.Node;
+        if (adNode.height == 0 || adNode.width == 0) return;
+
+
+        let sprite: cc.Sprite = adNode.getComponent(cc.Sprite);
+
+        //广告宽
+        let toW: number = cc.winSize.width - this.borderWeight * 2;
+        if (this._maxWidth > 0) toW = this._maxWidth;
+
+        let adScale: number = toW / adNode.width;
+        if (this._maxHeight > 0) {
+            adScale = Math.min(this._maxHeight / adNode.height, toW / adNode.width);
+        }
+        adNode.scale = adScale;
+
+
+        let adX: number = 0;
+        let adY: number = 0;
+
+        switch (this._location) {
+            //TODO:NEXT 后期需补齐算法
+            case GameCoreLocation.BOTTOM_CENTER:
+                adX = cc.winSize.width / 2
+                adY = adNode.height * adScale / 2;
+                break;
+            case GameCoreLocation.TOP_CENTER:
+                adX = cc.winSize.width / 2
+                adY = cc.winSize.height - adNode.height * adScale / 2;
+                break;
+        }
+
+        //偏移
+        adX += this._horizontalIndent;
+        adY += this._vertialIndent;
+
+        adNode.x = adX;
+        adNode.y = adY;
+
+        this._adRect = new cc.Rect(adX - adNode.width * adScale / 2 - this.borderWeight,
+            adY - adNode.height * adScale / 2 - this.borderWeight,
+            adNode.width * adScale + this.borderWeight * 2,
+            adNode.height * adScale + this.borderWeight * 2);
+
+        //转换为屏幕矩形区域
+        this._adRect = Utils.toScreenRect(this._adRect);
+        this.dispatchEventWith(WXEventNames.BANNER_AD_RESIZE);
+    }
+
+
+
+
+
+    /**
+     * 下一个
+     */
+    public next(): void {
+        console.log("----  Deer Banner广告 ----");
+        console.log("-  next  -");
+        console.log("this._bannerAd=" + this._bannerAd);
+        console.log("this._isShowing=" + this._isShowing);
+
+        this.dispatchEventWith(WXEventNames.BANNER_AD_NEXT);
+    }
+
+
+    /**
+     * 显示广告
+     */
+    public show(): void {
+        if (this._destoried) return;
+        // if (this._isShowing) return;
+
+        console.log("----  Deer Banner广告 ----");
+        console.log("-  show  -");
+        console.log("this._bannerAd=" + this._bannerAd);
+        console.log("this._isShowing=" + this._isShowing);
+
+        if (this._bannerAd) {
+            (this._bannerAd as cc.Node).active = true;
+        }
+
+        this._isShowing = true;
+        this.dispatchEventWith(WXEventNames.BANNER_AD_SHOW);
+    }
+
+
+    /**
+     * 隐藏广告
+     */
+    public hide(): void {
+        if (this._destoried) return;
+        // if (!this._isShowing) return;
+
+        console.log("----  Deer Banner广告 ----");
+        console.log("-  hide  -");
+        console.log("this._bannerAd=" + this._bannerAd);
+        console.log("this._isShowing=" + this._isShowing);
+
+        if (this._bannerAd) {
+            (this._bannerAd as cc.Node).active = false;
+        }
+
+        this._isShowing = false;
+        this.dispatchEventWith(WXEventNames.BANNER_AD_HIDE, this);
+    }
+
+
+    /**
+     * 销毁广告
+     * 
+     * 
+     */
+    destory(): void {
+        if (this._destoried) return;
+
+        DeerSDK.instance.removeEventListener(DeerSDKEventNames.READY, this.deerSDKReadyHandler, this);
+
+        console.log("----  Deer Banner广告 ----");
+        console.log("-  destroy  -");
+
+        super.destory();
+
+        if (this._bannerAd) {
+            (this._bannerAd as cc.Node).destroy();
+            this._bannerAd = null;
+        }
+    }
+
+
+
+
+
+}

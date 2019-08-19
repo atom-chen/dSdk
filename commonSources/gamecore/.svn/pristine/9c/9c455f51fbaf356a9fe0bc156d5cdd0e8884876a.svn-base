@@ -1,0 +1,9 @@
+{
+    "extends": "./tsconfig_pub.json",
+
+    "compilerOptions": {
+        "removeComments": false,
+        "emitDeclarationOnly":true
+    }
+    
+}

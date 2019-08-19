@@ -1,0 +1,293 @@
+import DeerSDK, { DEER_API_URL, DEER_API_URL_TEST, DEER_SDK_VERSION } from "./DeerSDK";
+import { md5 } from "../libs/md5";
+import GameValues from "../base/GameValues"
+
+
+
+/**
+ * 请求
+ */
+export default class DeerRequest {
+
+    //请求失败后尝试次数
+    public tryTimes: number = 1;
+
+    //请求url
+    private _apiURL: string;
+
+    //请求携带数据
+    private _requestData: object;
+
+
+    //数据预处理
+    private _dataFactory: Function;
+
+
+    //请求方法
+    private _requestMethod:string;
+
+    /**
+     * 
+     * @param apiURL 
+     * @param data 
+     * @param successHandler            请求成功回调
+     * @param failHandler               请求失败回调
+     * @param dataFactory               请求成功后，数据预处理
+     * 
+     * @param method                    请求方式。POST、GET
+     */
+    constructor(apiURL: string,
+        data: object = null,
+        successHandler: Function = null,
+        failHandler: Function = null,
+        dataFactory: Function = null,
+        method:string = "GET"
+    ) {
+
+        if (successHandler != null) this._successHandlers.push(successHandler);
+        if (failHandler != null) this._failHandlers.push(failHandler);
+
+        if (data) {
+            data["__v"] = DEER_SDK_VERSION;
+            data["__gv"] = GameValues.gameVersion;
+        }
+
+        this._apiURL = apiURL;
+        this._requestData = data;
+        this._dataFactory = dataFactory;
+
+        this._requestMethod = (method || "GET");
+        this.sendRequest();
+    }
+
+
+    //是否是成功
+    private _isSuccess: boolean;
+
+
+    private _isComplete: boolean;
+
+    /**
+     * 是否已完成请求
+     * 
+     */
+    public get isComplete(): boolean {
+        return this._isComplete;
+    }
+
+
+    private _data: object;
+
+    /**
+     * 获取数据
+     */
+    public get data(): object {
+        return this._data;
+    }
+
+
+    private _successHandlers: Array<Function> = [];
+
+
+    /**
+     * 添加请求成功回调
+     * 
+     * @param fun 
+     */
+    public onSuccess(fun: Function): void {
+        if (fun == null) return;
+
+        if (this._isComplete === true) {
+            if (this._isSuccess === true) {
+                fun(this._data);
+            }
+            return;
+        }
+
+        if (this._successHandlers.indexOf(fun) == -1) {
+            this._successHandlers.push(fun);
+        }
+    }
+
+
+    /**
+     * 请求成功回调
+     * 
+     * @param res 
+     */
+    private requestSuccessHandler(res: any): void {
+        //数据预处理
+        if (this._dataFactory != null) {
+            res = this._dataFactory(res);
+        }
+
+        this._isComplete = true;
+        this._isSuccess = true;
+        this._data = res;
+
+        for (let i:number = 0; i < this._successHandlers.length; i++) {
+            let fun:Function = this._successHandlers[i];
+            fun(res);
+        }
+        
+
+        this._successHandlers = [];
+    }
+
+
+    private _failHandlers: Array<Function> = [];
+
+
+    /**
+     * 添加请求失败回调
+     * 
+     * @param fun 
+     */
+    public onFail(fun: Function): void {
+        if (fun == null) return;
+
+        if (this._isComplete === true) {
+            if (this._isSuccess === false) {
+                fun(this._data);
+            }
+            return;
+        }
+
+        if (this._failHandlers.indexOf(fun) == -1) {
+            this._failHandlers.push(fun);
+        }
+    }
+
+    //已经尝试次数
+    private _hasTriedTimes: number = 0;
+
+    /**
+     * 请求失败回调
+     * 
+     * @param res 
+     */
+    private requestFailHandler(err: any): void {
+        //检查失败尝试次数
+        if (this._hasTriedTimes < this.tryTimes) {
+            this._hasTriedTimes++;
+            this.sendRequest();
+            return;
+        }
+
+        this._isComplete = true;
+        this._isSuccess = false;
+        this._data = err;
+
+        for (let i:number = 0; i < this._failHandlers.length; i++) {
+            let fun:Function = this._failHandlers[i];
+            fun(err);
+        }
+
+        this._failHandlers = [];
+    }
+
+    /**
+     * 发送请求
+     * 
+     */
+    private sendRequest(): void {
+        let url: string;
+
+        if (this._apiURL.match(/^https?:/i)) {
+            url = this._apiURL;
+        } else {
+            url = GameValues.isDebug ? DEER_API_URL_TEST : DEER_API_URL;
+            
+            if (this._apiURL.charAt(0) != "/") this._apiURL = "/" + this._apiURL;
+            url += this._apiURL;
+            //服务器路由设定
+            if (url.charAt(url.length - 1) != "/") url += "/";
+        }
+
+        
+        console.log("---------------------------------------");
+        console.log("【sendRequest】");
+        console.log("url is " + url);
+        console.log("data is", this._requestData);
+
+        if (typeof wx == "undefined") return;
+
+        //时间戳
+        if (this._requestData["ts"] == undefined) {
+            this._requestData["ts"] = Math.floor(DeerSDK.instance.serverTime.getTime() /1000);//不能使用本地时间，会和服务器不同步。
+        }
+
+        this.md5Data(this._requestData);
+        var self = this;
+        wx.request({
+            url: url,
+            data: self._requestData,
+
+            header: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+
+            method: this._requestMethod.toUpperCase(),
+
+            success: (res) => {
+                console.log("【sendRequest】success", self._apiURL, res);
+                let data: object = res["data"];
+                if (data) {
+                    //copy数据
+                    try {data["data"]["status"] = data["status"];} catch (error) {}
+                    self.requestSuccessHandler(data["data"]);
+                } else {
+                    self.requestSuccessHandler(null);
+                }
+            },
+
+            fail: (err) => {
+                console.log("【sendRequest】fail", self._apiURL, err);
+                self.requestFailHandler(err);
+            },
+
+            complete: () => {
+                console.log("【sendRequest】complete", self._apiURL);
+            },
+        });
+    }
+
+
+
+    /**
+     * 销毁
+     */
+    public destory():void {
+        this._failHandlers = [];
+        this._successHandlers = [];
+
+        this._dataFactory = null;
+    }
+
+
+    /**
+     * 加上md5验证数据
+     * 
+     * @param data 
+     */
+    private md5Data(data:object):void {
+        if (!data) return;
+        
+        let keys:Array<string> = Object.keys(data);
+        keys.sort();
+
+        let sign: string = "";
+        for (let i: number = 0; i < keys.length; i++) {
+            let theKey: string = keys[i];
+            //忽略__开头的key
+            if (theKey.indexOf("__") == 0) continue;
+
+            if (sign != "") sign += "&";
+            sign += "" + theKey + "=" + data[theKey];
+        }
+
+        //加上key（即渠道号）
+        sign += "&" + this["md5key"];
+        data["__md5"] = md5(sign);
+    }
+}

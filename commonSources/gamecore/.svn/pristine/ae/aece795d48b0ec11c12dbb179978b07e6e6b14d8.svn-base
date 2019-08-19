@@ -1,0 +1,1003 @@
+import GameManager from "../managers/GameManager";
+import { md5 } from "../libs/md5";
+import ShareTypes from "./ShareTypes";
+import Utils from "../managers/Utils";
+import XYJEventNames from "./XYJEventNames";
+import WXShare from "../wechat/WXShare";
+import WXUser from "../wechat/WXUser";
+import WXUtils from "../wechat/WXUtils";
+import GameValues from "../base/GameValues";
+import DeerSDK, { DeerAdType, DeerAdVO, DeerDeviceType, DeerTrackAction } from "../deer/DeerSDK";
+import WXImage from "../wechat/WXImage";
+import WXData from "../wechat/WXData";
+
+
+const { ccclass, property } = cc._decorator;
+
+
+/**
+ * 小幺鸡api
+ * @see http://www.xiaoyaoji.cn/share/1xvjb8LyVs/1xvFYnFMhp?password=wx
+ * @see http://note.youdao.com/noteshare?id=0536d3a34e5ee21fb90335177600900f
+ * 
+ */
+@ccclass
+export default class XYJAPI {
+
+    //基础URL
+    private static _baseURL: string;
+
+
+    public static get baseURL(): string {
+        return XYJAPI._baseURL;
+    }
+
+    //渠道id
+    private static _flg: string = null;
+
+    /**
+     * 获取渠道ID
+     */
+    public static get flg(): string {
+        return XYJAPI._flg;
+    }
+
+    /**
+     * 需要从小幺鸡获取数据的广告类型
+     */
+    public static proxyAdTypes: Array<DeerAdType> = [DeerAdType.BANNER, DeerAdType.RECOMMEND, DeerAdType.HOT, DeerAdType.BOARD, DeerAdType.GAME_OVER, DeerAdType.RICH];
+
+    //版本号
+    static gameVersion: string = null;
+
+    //==============================================================
+    //邀请者相关
+    //==============================================================
+    //邀请者open id
+    static inviterOpenID: string = null;
+
+    //邀请者id
+    static inviterUserID: string = null;
+
+
+    //邀请者昵称
+    static inviterNickname: string = null;
+
+    //分享时间戳(秒)
+    static inviterTime: number = 0;
+
+    //游戏开始时间
+    static gameStartTime: number = 0;
+
+    //分享目标
+    static inviterAction: string = null;
+
+    //邀请者游戏局id
+    static inviterGameRecordID: string = null;
+
+    //推广来源
+    static inviterChannel: string = null;
+    //==============================================================
+
+    //接力限制时间（秒）。默认30秒，即用户分享30秒内可以被接力。
+    static relayLimitedTime: number = 30;
+
+    //用户open id
+    static userOpenID: string = null;
+    static userUnionID: string = null;
+
+    //用户昵称
+    static userNickname: string = null;
+
+    static userToken: string = null;
+
+    private static encryptedData: string = null;
+
+    private static iv: string = null;
+
+    /**
+     * avatarUrl	string	用户头像图片 url	
+     * city	        string	用户所在城市	
+     * country	    string	用户所在国家	
+     * gender	    number	用户性别	
+     * language	    string	显示 country province city 所用的语言	
+     * nickName	    string	用户昵称	
+     * openId	    string	用户 openId	
+     * province	    string	用户所在省份
+     */
+    private static _userInfo: object = null;
+    public static get userInfo(): object { return XYJAPI._userInfo; }
+
+
+    //是否已初始化
+    static _initialized: boolean;
+
+    /**
+     * 初始化
+     * 
+     * @param channelID         渠道ID
+     */
+    static init(flg: string): void {
+        if (XYJAPI._initialized) return;
+        XYJAPI._initialized = true;
+
+        //渠道id
+        XYJAPI._flg = flg;
+
+        //检查是否是调试模式
+        if (GameValues.isDebug) {
+            XYJAPI._baseURL = "https://api.yz061.com";
+        } else {
+            XYJAPI._baseURL = "https://api.yz061.com";
+        }
+
+        console.log("----  小幺鸡 API ----");
+        console.log("-  init   -");
+        console.log(XYJAPI._baseURL);
+
+
+        //读取渠道
+        let channelV: string = GameManager.dataManager.getData("XYJChannel");
+        if (channelV && channelV != "null" && channelV != "undefined") {
+            XYJAPI.inviterChannel = channelV;
+        }
+
+        if (typeof wx != "undefined") {
+            let res: object = wx.getLaunchOptionsSync();
+            console.log("【XYJAPI】launchOptions", res);
+
+            let query: any = res["query"];
+
+            //分享者id
+            if (query.openID) XYJAPI.inviterOpenID = query.openID;
+            //分享者id
+            if (query.userID) XYJAPI.inviterUserID = query.userID;
+            //分享者昵称
+            if (query.nickname) XYJAPI.inviterNickname = decodeURIComponent(query.nickname)
+
+            //分享的时间戳（秒）
+            if (query.time) {
+                XYJAPI.inviterTime = parseInt(query.time);
+                if (isNaN(XYJAPI.inviterTime)) XYJAPI.inviterTime = 0;
+            }
+
+            XYJAPI.gameStartTime = Math.floor(new Date().getTime() / 1000);
+
+            //分享做什么
+            if (query.action) XYJAPI.inviterAction = query.action;
+            if (query.channel && query.channel != "null" && query.channel != "undefined") {
+                XYJAPI.inviterChannel = query.channel;
+                GameManager.dataManager.setData("XYJChannel", XYJAPI.inviterChannel, true);
+            }
+
+            //分享来自哪一局游戏
+            if (query.recordID) XYJAPI.inviterGameRecordID = query.recordID;
+        }
+
+        //激活代理
+        XYJAPI.enabled = true;
+
+        XYJAPI.login();
+    }
+
+    private static _loginCheckTimer: number;
+
+    /**
+     * 用户登陆
+     */
+    private static login(): void {
+        WXUser.onLogin(XYJAPI.wxLoginHandler.bind(XYJAPI));
+        WXUser.login();
+    }
+
+    /**
+     * 
+     * @param code 
+     */
+    private static wxLoginHandler(code: string): void {
+        XYJAPI._code = code;
+
+        console.log("----  小幺鸡 API ----");
+        console.log("-  wxLoginHandler   -");
+
+        XYJAPI.loginToPlatform();
+    }
+
+
+
+
+    private static _code: string;
+
+    /**
+     * 登陆平台
+     * 
+     */
+    public static loginToPlatform(): void {
+        console.log("----  小幺鸡 API ----");
+        console.log("-  loginToPlatform   -");
+
+        if (typeof wx == "undefined") return;
+
+        let theData: object = {
+            code: XYJAPI._code,
+            opId: XYJAPI.inviterOpenID,
+            channel: XYJAPI.inviterChannel,
+            flg: XYJAPI._flg
+        };
+
+        //来源appid
+        let fromAppID: string = WXData.fromAppID;
+        if (fromAppID) {
+            theData["appid"] = fromAppID;
+        }
+
+
+        console.log("the data is", theData);
+
+        console.log("request Ball.Api.Auth.WechatLogin");
+        console.log("url is " + XYJAPI._baseURL + "/auth");
+        wx.request({
+            url: XYJAPI._baseURL + "/auth",
+
+            data: theData,
+
+            // header: {
+            //     "X-Version": XYJAPI.gameVersion,
+            //     "X-Source": XYJAPI.flg,
+            // },
+
+            method: "POST",
+
+            success: XYJAPI.loginFeedbackCallback,
+
+            fail: function (res) {
+                console.log("failed to call Ball.Api.Auth.WechatLogin");
+                console.log(res);
+
+                //抛出事件
+                GameManager.eventManager.dispatchEventWith(XYJEventNames.EVENT_INIT_FAILED);
+            }
+        });
+    }
+
+    /**
+     * 向小幺鸡平台发送登陆反馈后回调
+     */
+    private static loginFeedbackCallback(res: object): void {
+        console.log("----  小幺鸡 API ----");
+        console.log("-  loginFeedbackCallback   -");
+        console.log(res);
+
+        if (!res["data"]) {
+            console.log("loginFeedbackCallback 数据错误");
+            return;
+        }
+
+        try {
+            XYJAPI.userOpenID = res["data"].result.openid;
+            // XYJAPI.userID = res["data"].result.userid;
+            XYJAPI.userToken = res["data"].result.token;
+            console.log("userOpenID=" + XYJAPI.userOpenID);
+            console.log("userToken=" + XYJAPI.userToken);
+
+            GameManager.eventManager.dispatchEventWith(XYJEventNames.EVENT_USER_READY);
+
+            //发送统计
+            XYJAPI.sendFeedbackDaily();
+
+            XYJAPI.bindingToPlatform();
+        } catch (err) {
+            console.log("【ERROR】", err);
+
+            //抛出事件
+            GameManager.eventManager.dispatchEventWith(XYJEventNames.EVENT_INIT_FAILED);
+        }
+
+
+
+        //================================================================================
+        //微信模块监听
+        //================================================================================
+        if (typeof wx != "undefined") {
+            wx.onHide(() => {
+                XYJAPI.ad_reportShownNow();
+            });
+        }
+        //================================================================================
+
+    }
+
+
+
+
+
+    /**
+     * 绑定到平台
+     * 
+     * @param res
+     */
+    private static bindingToPlatform(): void {
+        console.log("----  小幺鸡 API ----");
+        console.log("-  bindingToPlatform   -");
+
+        WXUser.offUserInfo(XYJAPI.bindingToPlatform.bind(XYJAPI));
+        if (!WXUser.encryptedData) {
+            WXUser.onUserInfo(XYJAPI.bindingToPlatform.bind(XYJAPI));
+            return;
+        }
+
+        XYJAPI.encryptedData = WXUser.encryptedData;
+        XYJAPI.iv = WXUser.iv;
+        XYJAPI._userInfo = WXUser.userInfo
+
+        console.log("encryptedData=" + XYJAPI.encryptedData);
+        console.log("iv=" + XYJAPI.iv);
+        console.log("userInfo=", XYJAPI._userInfo);
+
+        //登录绑定unionid
+        wx.request({
+            url: XYJAPI._baseURL + "/binding",
+            data: {
+                flg: XYJAPI._flg,
+                token: XYJAPI.userToken,
+                enc: XYJAPI.encryptedData,
+                iv: XYJAPI.iv,
+            },
+
+            method: "POST",
+
+            success: XYJAPI.loginBindingCallback,
+
+            fail: function (res) {
+                console.log("failed to call Ball.Api.Auth.Binding");
+                console.log(res);
+
+                //抛出事件
+                GameManager.eventManager.dispatchEventWith(XYJEventNames.EVENT_INIT_FAILED);
+            }
+        });
+    }
+
+
+    private static _affairs: Array<string>;
+
+    /**
+     * 获取客服信息
+     * 
+     * @param res
+     */
+    public static getAffairs(success: Function = null): void {
+        console.log("----  小幺鸡 API ----");
+        console.log("-  getAffairs   -");
+
+        if (XYJAPI._affairs) {
+            if (success) success(XYJAPI._affairs.concat());
+            return;
+        }
+
+        //登录绑定unionid
+        wx.request({
+            url: XYJAPI._baseURL + "/additional?flg=" + XYJAPI.flg,
+            data: {
+            },
+            method: "GET",
+
+            success: (res) => {
+                // {"status":1,"msg":"","result":{"affairs":["tangxiaotianv587","wei915945712"]}}
+                console.log("success to call getAffairs");
+                console.log(res);
+                try {
+                    let data: any = res["data"];
+                    let result: any = data["result"];
+                    let affairs: Array<string> = result["affairs"];
+
+                    XYJAPI._affairs = affairs.concat();
+                    if (success) success(affairs);
+                } catch (err) {
+
+                }
+            },
+
+            fail: (err) => {
+                console.log("failed to call getAffairs");
+                console.log(err);
+            }
+        });
+    }
+
+
+    /**
+     * 登陆绑定
+     * 
+     * @param res
+     */
+    private static loginBindingCallback(res: object): void {
+        console.log("----  小幺鸡 API ----");
+        console.log("-  loginBindingCallback   -");
+        console.log(res);
+
+        try {
+            XYJAPI.userUnionID = res["data"].data.unionId;
+        } catch (error) {
+
+        }
+        console.log("userUnionID=" + XYJAPI.userUnionID);
+
+        //抛出事件
+        GameManager.eventManager.dispatchEventWith(XYJEventNames.EVENT_ALL_READY);
+    }
+
+
+    /**
+     * 发送日活跃统计
+     */
+    private static sendFeedbackDaily(): void {
+        console.log("----  小幺鸡 API ----");
+        console.log("-  sendFeedbackDaily   -");
+
+        //登录绑定unionid
+        wx.request({
+            url: XYJAPI._baseURL + "/daily",
+            data: {
+                flg: XYJAPI._flg,
+                uid: XYJAPI.userOpenID,
+                channel: XYJAPI.inviterChannel
+            },
+
+            method: "POST",
+
+            success: (res) => {
+                console.log("success to send daily");
+                console.log(res);
+            },
+
+            fail: function (err) {
+                console.log("failed to send daily");
+                console.log(err);
+            }
+        });
+    }
+
+
+    /**
+     * 发送分享统计
+     */
+    public static sendFeedbackShare(shareType: string = null): void {
+        console.log("----  小幺鸡 API ----");
+        console.log("-  sendFeedbackShare   -");
+
+        //登录绑定unionid
+        wx.request({
+            url: XYJAPI._baseURL + "/stat",
+            data: {
+                flg: XYJAPI._flg,
+                uid: XYJAPI.userOpenID,
+                channel: XYJAPI.inviterChannel,
+                loc: "share",
+                "shareType": shareType
+            },
+
+            method: "POST",
+
+            success: (res) => {
+                console.log("success to sendFeedbackShare");
+                console.log(res);
+            },
+
+            fail: function (err) {
+                console.log("failed to sendFeedbackShare");
+                console.log(err);
+            }
+        });
+    }
+
+
+    /**
+     * 发送视频播放完毕统计
+     */
+    public static sendFeedbackVideo(): void {
+        console.log("----  小幺鸡 API ----");
+        console.log("-  sendFeedbackVideo   -");
+
+        //登录绑定unionid
+        wx.request({
+            url: XYJAPI._baseURL + "/stat",
+            data: {
+                flg: XYJAPI._flg,
+                uid: XYJAPI.userOpenID,
+                channel: XYJAPI.inviterChannel,
+                loc: "video",
+            },
+
+            method: "POST",
+
+            success: (res) => {
+                console.log("success to sendFeedbackVideo");
+                console.log(res);
+            },
+
+            fail: function (err) {
+                console.log("failed to sendFeedbackVideo");
+                console.log(err);
+            }
+        });
+    }
+
+
+    private static _enabled: boolean = false;
+
+    public static get enabled(): boolean {
+        return XYJAPI._enabled;
+    }
+
+
+    private static _original_ad_getAdData: any = null;
+
+    /**
+     * api注入
+     * 
+     */
+    public static set enabled(v: boolean) {
+        if (XYJAPI._enabled == v) return;
+        XYJAPI._enabled = v;
+
+        if (XYJAPI._enabled) {
+            if (XYJAPI._original_ad_getAdData == null) XYJAPI._original_ad_getAdData = DeerSDK.instance.ad_getAdData.bind(DeerSDK.instance);
+
+            DeerSDK.instance.ad_getAdData = XYJAPI.ad_getAdData.bind(XYJAPI);
+        } else {
+            DeerSDK.instance.ad_getAdData = XYJAPI._original_ad_getAdData;
+        }
+
+
+        //统计方法
+        DeerSDK.instance.trackProxyFun = XYJAPI.track.bind(XYJAPI);
+    }
+
+
+
+    /**
+     * 关闭api注入
+     */
+    public static disenable(): void {
+        if (!XYJAPI._enabled) return;
+        XYJAPI._enabled = false;
+    }
+
+    /**
+     * 发送统计
+     * 
+     * @param action 
+     * @param data 
+     */
+    public static track(action: DeerTrackAction, trackData: object = null): void {
+        //发送统计
+        // https://api.yz061.com/stat?flg=ball&uid=xxx1&channel=own&loc=share
+
+        let data: object = {
+            "flg": XYJAPI.flg,
+            "uid": XYJAPI.userOpenID
+        };
+
+        if (XYJAPI.inviterChannel) data["channel"] = XYJAPI.inviterChannel;
+
+        if (action == DeerTrackAction.SHOW_REWARD_AD_SUC) data["loc"] = "video";
+        else if (action == DeerTrackAction.GAME_SHARE) data["loc"] = "share";
+        else return
+
+        console.log("【小幺鸡】广告点击统计", data)
+
+        wx.request({
+            "url": "https://api.yz061.com/stat",
+            "data": data,
+            method: "GET",
+            success: function (res: object): void {
+            },
+            fail: function (res: object): void {
+            },
+        });
+    }
+
+    //================================================================================================
+    //广告
+    //================================================================================================
+    //是否正在请求广告数据
+    private static _isRequestingAdData: boolean = false;
+
+    private static _adTypeCallbacks: object = {};
+    // private static _adSuccessCallbacks:Array<Function> = [];
+    // private static _adFailCallbacks:Array<Function> = [];
+    /**
+     * 刷新广告数据
+     * 
+     * @param       adType          广告入口
+     * @param       successHandler  数据成功回调
+     * @param       failHandler     数据失败回调
+     * 
+     * 
+     * @see DeerAdType
+     */
+    private static ad_getAdData(adType: DeerAdType,
+        successHandler: (ads: Array<DeerAdVO>) => void = null,
+        failHandler: (err: any) => void = null,
+        adFlag: string = null): void {
+        if (!XYJAPI.userOpenID) {
+            if (failHandler) failHandler(null);
+            return;
+        }
+
+        //==========================================================
+        //检查是否有设置代理
+        //==========================================================
+        if (XYJAPI.proxyAdTypes.indexOf(adType) == -1) {
+            //如果没有使用代理的广告类型，直接使用DeerSDK来获取广告数据
+            XYJAPI._original_ad_getAdData(adType, successHandler, failHandler, adFlag);
+            return;
+        }
+
+        //==========================================================
+        //检查是否有数据
+        //==========================================================
+        let ads: Array<DeerAdVO> = DeerSDK.instance.ad_getAds(adType, adFlag)
+        if (ads) {
+            if (successHandler != null) {
+                successHandler(ads);
+            }
+            return;
+        }
+        //==========================================================
+
+        let obj: object = XYJAPI._adTypeCallbacks["ad_" + adType];
+        if (!obj) {
+            obj = { "success": [], "fail": [], "flag": [] };
+            XYJAPI._adTypeCallbacks["ad_" + adType] = obj;
+        }
+        obj["success"].push(successHandler);
+        obj["fail"].push(failHandler);
+        obj["flag"].push(adFlag);
+
+        if (XYJAPI._isRequestingAdData) return;
+        XYJAPI._isRequestingAdData = true;
+
+        wx.request({
+            "url": "https://api.yz061.com/game/" + XYJAPI.flg,
+            "method": "GET",
+            "success": XYJAPI.ad_getAdData_success.bind(XYJAPI),
+            "fail": XYJAPI.ad_getAdData_fail.bind(XYJAPI),
+        })
+    }
+
+    private static ad_getAdData_success(res: object): void {
+        XYJAPI._isRequestingAdData = false;
+
+        try {
+            let data: any = res["data"];
+            if (data.status != 1) {
+                XYJAPI.ad_getAdData_fail(null);
+                return;
+            }
+
+            let locations: Array<any> = data["result"];
+
+            locations.forEach((loc: any) => {
+                let locName: string = loc["location_name"];
+                let locFlag: string = loc["location_flg"];
+                let url: string = loc["url"];
+
+                if (url.indexOf("?") != -1) url += "&uid=" + XYJAPI.userOpenID;
+                else url += "?uid=" + XYJAPI.userOpenID;
+
+                wx.request({
+                    "url": url,
+                    "success": (res: any) => {
+                        console.log("【小幺鸡】" + locName + " 广告");
+                        console.log(res);
+
+                        let theData: any = res["data"]
+                        if (!theData || !theData["result"]) return;
+
+                        // 素材类型（1是广告，2是分享）
+                        if (loc["matter_type"] == 2) {
+                            // "result": [
+                            //     {
+                            //         "share_id": 29,
+                            //         "share_title": "这关怎么过？急等",
+                            //         "share_img": "https://img.yz061.com/uploads/20190516/953c332c87371ad763f00d5e7f6c8c47.png",
+                            //         "share_path": "?channel=share_5cdcdc3b20dba"
+                            //     }
+
+                            // {"share_id":number, "share_img": string, "share_info": string, "img_base64": string }> = [];
+                            let shareData: Array<any> = theData["result"];
+                            shareData.forEach((obj)=>{
+                                obj["share_info"] = obj["share_title"];
+                                delete obj["share_title"];
+                            });
+
+                            DeerSDK.instance["_shareData"] = shareData;
+
+
+                        } else if (loc["matter_type"] == 1) {
+                            let ads: Array<any> = theData["result"];
+                            if (ads && ads.length > 0) {
+                                let theAds: Array<DeerAdVO> = [];
+
+                                for (let i: number = 0; i < ads.length; i++) {
+                                    let obj: any = ads[i];
+
+                                    let isAvailable: boolean = true;
+
+                                    // "ad_id": 6,
+                                    // "ad_name": "游戏运营",
+                                    // "ad_img": "https://img.yz061.com/uploads/20181030/b074f074f78de7c0946723bd7406b26e.png",
+                                    // "ad_path": "page/aabb/cc/111222333444555",
+                                    // "ad_appid": "wxa8afaad1af0e9fa8",
+                                    // "ad_count": 0,
+                                    // "ad_qrimg": ""
+                                    // "ad_dot": ""
+
+                                    let ad: DeerAdVO = new DeerAdVO();
+                                    ad.id = parseInt(obj["ad_id"]);
+
+                                    ad.appID = obj["ad_appid"];
+                                    ad.name = obj["ad_name"];
+                                    ad.path = obj["ad_path"];
+                                    ad.desc = obj["desc"];
+                                    ad.icon = obj["ad_img"];
+                                    ad.previewImg = obj["ad_qrimg"];
+                                    ad.flag = locFlag;//location_flg
+                                    ad["ad_count"] = obj["ad_count"];
+                                    ad["ad_dot"] = obj["ad_dot"];
+
+                                    ad.navigate = XYJAPI.ad_navigate.bind(ad);
+                                    ad.reportShown = XYJAPI.ad_reportShown.bind(ad);
+
+                                    ad["__loc"] = loc;
+
+                                    ad.img_256_129 = obj["ad_img"];
+                                    ad.img_1000_840 = obj["ad_img"];
+                                    ad.bannerImg = obj["ad_img"];
+
+                                    //检查设备
+                                    if (obj["ad_device"] != undefined) {
+                                        let deviceV: string = "" + obj["ad_device"];
+
+                                        // 对应展示的设备 {0全部设备，1Android设备，2iOS设备}
+                                        if (deviceV == "1") ad.device = DeerDeviceType.ANDROID;
+                                        else if (deviceV == "2") ad.device = DeerDeviceType.IOS;
+
+                                        if (ad.device == DeerDeviceType.ANDROID && !GameValues.isAndroid) {
+                                            isAvailable = false;
+                                        } else if (ad.device == DeerDeviceType.IOS && !GameValues.isIOS) {
+                                            isAvailable = false;
+                                        }
+                                    }
+
+                                    if (isAvailable) theAds.push(ad);
+                                }
+
+                                let adType: DeerAdType;
+                                if (locName.indexOf('猜你喜欢') != -1) {//locName == "猜你喜欢" || locName == "猜你喜欢2"
+                                    adType = DeerAdType.RECOMMEND;
+                                } else if (locName.indexOf('爆款游戏') != -1) {//locName == "爆款游戏" || locName == "爆款游戏2"
+                                    adType = DeerAdType.HOT;
+                                } else if (locName.indexOf('banner') != -1) {
+                                    adType = DeerAdType.BANNER;
+                                } else if (locName == "死亡推荐") {
+                                    adType = DeerAdType.GAME_OVER;
+                                } else if (locName == "抽屉") {
+                                    adType = DeerAdType.BOARD;
+                                } else if (locName.indexOf('大图') != -1) {
+                                    adType = DeerAdType.RICH;
+                                } else if (locName == "弹窗") {
+                                    adType = DeerAdType.POP;
+                                }
+
+                                if (adType) {
+                                    //添加广告
+                                    DeerSDK.instance["ad_addAds"](adType, theAds);
+                                }
+
+                                let callbackObj: object = XYJAPI._adTypeCallbacks["ad_" + adType];
+                                delete XYJAPI._adTypeCallbacks["ad_" + adType];
+
+                                if (callbackObj) {
+                                    let successes: Array<Function> = callbackObj["success"];
+                                    let flags: Array<string> = callbackObj["flag"];
+                                    for (let i: number = 0; i < successes.length; i++) {
+                                        let adFlag: string = flags[i];
+                                        let targetAds: Array<DeerAdVO> = DeerSDK.instance.ad_getAds(adType, adFlag);
+
+                                        let success: Function = successes[i];
+                                        if (success) success(targetAds);
+                                    }
+                                }
+                            }
+                        }
+
+
+                    }
+                });
+            })
+
+
+        } catch (error) {
+
+        }
+
+    }
+
+    private static ad_getAdData_fail(err: any): void {
+        let adTypes: Array<string> = Object.keys(XYJAPI._adTypeCallbacks);
+
+        adTypes.forEach((adType: string) => {
+            let obj: object = XYJAPI._adTypeCallbacks[adType];
+            if (obj) {
+                let fail: Array<Function> = obj["fail"];
+                if (fail) {
+                    fail.forEach((fun: Function) => {
+                        if (fun) fun();
+                    })
+                }
+
+            }
+        });
+
+        XYJAPI._isRequestingAdData = false;
+    }
+
+
+    /**
+     * 跳转
+     */
+    private static ad_navigate(): void {
+        let adVO: any = this;
+
+        //发送统计
+        let gflg: string = adVO["__loc"]["game_flg"];
+        let ad_id: string = "" + adVO.id;
+        let location_id: string = adVO["__loc"]["location_id"];
+
+        let data: object = {
+            "gflg": gflg,
+            "uid": XYJAPI.userOpenID,
+            "ad_id": ad_id,
+            "location_id": location_id,
+        };
+
+        if (XYJAPI.inviterChannel) data["channel"] = XYJAPI.inviterChannel;
+
+        console.log("【小幺鸡】广告点击统计", data)
+
+        wx.request({
+            "url": "https://api.yz061.com/reportad",
+            "data": data,
+            method: "GET",
+            success: function (res: object): void {
+            },
+            fail: function (res: object): void {
+            },
+        });
+
+
+        try {
+            wx.navigateToMiniProgram({
+                "appId": adVO.appID,
+                "path": adVO.path,
+                "fail": (erro) => {
+                    if (adVO.previewImg) {
+                        WXImage.previewImage([adVO.previewImg]);
+                    }
+                },
+                "success": () => {
+                    //跳转成功上报
+
+                    data["status"] = "cb";
+                    wx.request({
+                        "url": "https://api.yz061.com/reportad",
+                        "data": data,
+                        method: "GET"
+                    });
+                }
+            });
+        } catch (error) {
+            console.log("########################", error);
+        }
+    }
+
+
+    //广告展现统计。收集后一次性上报
+    private static _ad_ShownData: object = {};
+
+    /**
+     * 广告展现上报
+     * 
+     */
+    private static ad_reportShown(): void {
+        let adVO: any = this;
+
+        if (adVO["__shownTimes"] == undefined) adVO["__shownTimes"] = 0;
+        adVO["__shownTimes"]++;
+
+        //发送统计
+        let gflg: string = adVO["__loc"]["game_flg"];
+        let ad_id: string = "" + adVO.id;
+        let location_id: string = adVO["__loc"]["location_id"];
+
+        let key: string = "" + ad_id + "_" + location_id;
+        if (!XYJAPI._ad_ShownData[key]) XYJAPI._ad_ShownData[key] = { "ad_id": ad_id, "location_id": location_id, "num": 0 };
+        XYJAPI._ad_ShownData[key]["num"]++;
+
+        // setTimeout(()=>{
+        //     XYJAPI.ad_reportShownNow();
+        // }, 3000);
+    }
+
+
+    public static ad_reportShownNow(): void {
+        let data: object = {
+            "gflg": XYJAPI.flg,
+            "flg": XYJAPI.flg,
+            "uid": XYJAPI.userOpenID
+        };
+
+
+        // data["data"] = Object.values(XYJAPI._ad_ShownData);
+        data["data"] = Object.keys(XYJAPI._ad_ShownData).map(key => XYJAPI._ad_ShownData[key])
+        if (data["data"].length == 0) return;
+
+        XYJAPI._ad_ShownData = {};
+
+        if (XYJAPI.inviterChannel) data["channel"] = XYJAPI.inviterChannel;
+
+        console.log("【小幺鸡】广告展现统计", data)
+
+        wx.request({
+            "url": "https://api.yz061.com/exposure",
+            "data": data,
+            method: "POST",
+            success: function (res: object): void {
+            },
+            fail: function (res: object): void {
+            },
+        });
+    }
+
+
+    //================================================================================================
+    //通用方法
+    //================================================================================================
+
+    /**
+     * 创建签名
+     */
+    static createSign(data: any): string {
+        let keys: Array<string> = [];
+
+        for (let key in data) {
+            let v: any = data[key];
+            if (v == undefined || v == "") continue;
+            keys.push("" + key);
+        }
+
+        keys.sort();
+
+        let sign: string = "";
+        for (let i: number = 0; i < keys.length; i++) {
+            let theKey: string = keys[i];
+
+            if (i > 0) sign += "&";
+            sign += "" + theKey + "=" + data[theKey];
+        }
+
+        //加上key（即渠道号）
+        sign += "&key=" + XYJAPI.flg;
+
+        //计算md5
+        sign = md5(sign);
+
+        //大写
+        sign = sign.toUpperCase();
+
+        return sign;
+    }
+}

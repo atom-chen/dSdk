@@ -1,0 +1,183 @@
+import EventData from "../managers/event/EventData";
+import DeerSDK from "../deer/DeerSDK";
+import DeerSDKEventNames from "../deer/DeerSDKEventNames";
+import GameManager from "../managers/GameManager";
+import GameCoreEventNames from "../GameCoreEventNames";
+
+const { ccclass, property } = cc._decorator;
+
+/**
+ * 将本地已设置同步到服务器的数据，通过DeerSDK同步
+ */
+@ccclass
+export default class SyncDataToServerByDeerSDK {
+
+
+    private static _instance: SyncDataToServerByDeerSDK;
+
+
+    public static get instance(): SyncDataToServerByDeerSDK {
+        if (!SyncDataToServerByDeerSDK._instance) new SyncDataToServerByDeerSDK();
+        return SyncDataToServerByDeerSDK._instance;
+    }
+
+
+
+    constructor() {
+        if (SyncDataToServerByDeerSDK._instance) throw new Error("Please use static instance property");
+
+        SyncDataToServerByDeerSDK._instance = this;
+
+        this.doInit();
+    }
+
+
+
+    private doInit(): void {
+        var self = this;
+        if (DeerSDK.instance.isHandshakeCompleted) {
+            self.doInit2();
+        } else {
+            DeerSDK.instance.addEventListener(DeerSDKEventNames.HANDSHAKE_COMPLETE, (e: EventData) => {
+                self.doInit2();
+            }, this, 0, true);
+        }
+    }
+
+
+    private _forbidToSyncDataFromService:boolean = false;
+    /**
+     * 禁止从服务器下载数据
+     */
+    public forbidToSyncDataFromService():void {
+        this._forbidToSyncDataFromService = true;
+    }
+
+
+
+    private doInit2(): void {
+        if (this._forbidToSyncDataFromService || DeerSDK.instance.isNewUser/*新用户不需要下载数据*/) {
+            this._isReady = true;
+            
+            //添加事件监听
+            GameManager.eventManager.addEventListener(GameCoreEventNames.DATA_REMOTE_CHANGE, this.dataManagerSerializeHandler, this);
+        } else {
+            this.syncDataFromServiceToDataManager();
+        }
+
+        var self = this;
+        if (typeof wx != "undefined") {
+            wx.onHide(() => {
+                console.log("【SyncDataToServerByDeerSDK】onHide");
+                self.syncDataFromDataManagerToService();
+            });
+
+            //qq厘米秀才支持该方法
+            if (wx.onClose) {
+                wx.onClose(() => {
+                    console.log("【SyncDataToServerByDeerSDK】onClose");
+                    self.syncDataFromDataManagerToService();
+                })
+            }
+        }
+    }
+
+
+    private _isReady: boolean = false;
+
+
+    /**
+     * 是否已准备完毕
+     */
+    public get isReady(): boolean {
+        return this._isReady;
+    }
+
+
+
+    /**
+     * 同步服务器数据到本地
+     */
+    public syncDataFromServiceToDataManager(): void {
+        DeerSDK.instance.game_getDataFromService(
+            (v: string) => {
+                try {
+                    this._lastSyncValue = v;
+                    let data: object = JSON.parse(this._lastSyncValue);
+                    for (let key in data) {
+                        // if (GameManager.dataManager.hasData(key) === false) {
+                        GameManager.dataManager.setData(key, data[key], true, false, true);
+                        // }
+
+                        //事件派发
+                        GameManager.eventManager.dispatchEventWith(GameCoreEventNames.DATA_REMOTE_RETRIVE);
+                    }
+                } catch (error) {
+
+                }
+
+                this._isReady = true;
+
+                //添加事件监听
+                GameManager.eventManager.addEventListener(GameCoreEventNames.DATA_REMOTE_CHANGE, this.dataManagerSerializeHandler, this);
+            },
+
+            () => {
+                console.log("从服务器获取游戏数据失败！");
+
+                this._isReady = true;
+
+                //添加事件监听
+                GameManager.eventManager.addEventListener(GameCoreEventNames.DATA_REMOTE_CHANGE, this.dataManagerSerializeHandler, this);
+            }
+        );
+    }
+
+
+
+
+
+
+    //上一次同步数据到服务器的时间
+    private _lastSyncTime: number = 0;
+
+    /**
+     * 数据中心本地数据序列化事件控制
+     * 
+     */
+    private dataManagerSerializeHandler(e: EventData): void {
+        console.log("数据中心本地数据序列化事件控制")
+
+        //最小间隔10秒
+        let now: number = new Date().getTime();
+        if (now - this._lastSyncTime > 20000) {
+            this._lastSyncTime = now;
+
+            //保存数据到服务器
+            this.syncDataFromDataManagerToService();
+        }
+    }
+
+    private _lastSyncValue: string;
+    private _lastTrySyncValue: string;
+
+    /**
+     * 同步本地数据到服务器
+     */
+    public syncDataFromDataManagerToService(): void {
+        console.log("同步本地数据到服务器")
+        this._lastTrySyncValue = GameManager.dataManager.getDataNeedSyncToServer();
+
+        if (this._lastTrySyncValue != this._lastSyncValue) {
+            console.log("this._lastTrySyncValue != this._lastSyncValue")
+            DeerSDK.instance.game_saveDataToServiceNow(this._lastTrySyncValue, this.syncDataFromDataManagerToService_suc.bind(this));
+        }
+    }
+
+
+    private syncDataFromDataManagerToService_suc(): void {
+        this._lastSyncValue = this._lastTrySyncValue;
+        this._lastTrySyncValue = null;
+    }
+
+}

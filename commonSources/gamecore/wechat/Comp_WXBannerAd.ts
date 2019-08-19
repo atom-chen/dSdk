@@ -1,0 +1,426 @@
+import WXBannerAd from "./WXBannerAd";
+import WXEventNames from "./WXEventNames";
+import GameManager from "../managers/GameManager";
+import Utils from "../managers/Utils";
+import { GameCoreLocation } from "../GameCoreLocation";
+import EventData from "../managers/event/EventData";
+import WXBannerAdBase from "./WXBannerAdBase";
+import DeerBannerAd from "./DeerBannerAd";
+import DeerSDK from "../deer/DeerSDK";
+
+// Learn TypeScript:
+//  - [Chinese] http://docs.cocos.com/creator/manual/zh/scripting/typescript.html
+//  - [English] http://www.cocos2d-x.org/docs/creator/manual/en/scripting/typescript.html
+// Learn Attribute:
+//  - [Chinese] http://docs.cocos.com/creator/manual/zh/scripting/reference/attributes.html
+//  - [English] http://www.cocos2d-x.org/docs/creator/manual/en/scripting/reference/attributes.html
+// Learn life-cycle callbacks:
+//  - [Chinese] http://docs.cocos.com/creator/manual/zh/scripting/life-cycle-callbacks.html
+//  - [English] http://www.cocos2d-x.org/docs/creator/manual/en/scripting/life-cycle-callbacks.html
+
+const { ccclass, property } = cc._decorator;
+
+
+enum Direction {
+    Up,
+    Down,
+    Left,
+    Right
+}
+
+/**
+ * 一个banner广告
+ */
+
+@ccclass
+export default class Comp_WXBannerAd extends cc.Component {
+
+    @property({
+        type: [cc.String],
+        displayName: "广告列表",
+    })
+    bannerAdIDs: string[] = [""];
+
+    @property({
+        displayName: "位置",
+        type: cc.Enum(GameCoreLocation),
+        tooltip: "仅支持TOP_CENTER和BOTTOM_CENTER"
+    })
+    adLocation: GameCoreLocation = GameCoreLocation.BOTTOM_CENTER;
+
+    //广告最大宽度
+    // @property({
+    //     displayName:"最大宽度"
+    // })
+    maxWidth: number = 0;
+
+    @property({
+        displayName: "最大高度",
+        tooltip: "如果设置了该参数，则会忽略Y轴偏移的参数设定"
+    })
+    maxHeight: number = 0;
+
+    //是否默认影藏广告
+    @property({
+        displayName: "默认隐藏",
+    })
+    hideByDefault: boolean = false;
+
+    @property({
+        displayName: "有弹窗自动隐藏"
+    })
+    hideWhenHasPopUp: boolean = false;
+
+
+    //设置了多个广告时才有效
+    @property({
+        displayName: "自动刷新间隔(s)",
+        tooltip: "设置了多个广告时生效。最小间隔20秒。"
+    })
+    refreshAdMaxDelay: number = 45;
+
+    //设置了多个广告时才有效
+    @property({
+        displayName: "是否随机挑选广告id",
+        tooltip: "设置了多个广告时生效。"
+    })
+    refreshRandom: boolean = true;
+
+    //广告刷新最小间隔时间（秒）
+    //设置了多个广告时才有效
+    refreshAdMinDelay: number = 15;
+
+    @property({
+        displayName: "随节点释放",
+        tooltip: "只对微信广告有效"
+    })
+    autoRelease: boolean = true;
+
+    @property({
+        displayName: "默认显示自有广告",
+    })
+    deerAdAsDefault: boolean = false;
+
+    //是否使用微信bannerad
+    private _useWXBannerAd: boolean = true;
+
+    private _wxBannerAd: WXBannerAdBase;
+
+    //banner广告是否是微信广告。
+    //由于做了自由广告系统兼容。广告有可能是自己的banner广告。
+    private _wxBannerAdIsWX: boolean = false;
+
+
+    //默认广告
+    private _defaultAd:DeerBannerAd;
+
+    onLoad(){
+        
+    }
+
+    start() {
+        this._currentAdIsShowing = !this.hideByDefault;
+
+        //改变锚点
+        this.node.anchorX = 0;
+        this.node.anchorY = 0;
+
+        if (!this.adLocation) this.adLocation = GameCoreLocation.BOTTOM_CENTER
+        if (this.maxWidth <= 0) this.maxWidth = NaN;
+
+        //重新布局
+        this.relayout();
+
+        //如果使用自有广告作为默认广告
+        if (this.deerAdAsDefault) {
+            // if (this._defaultAd) {
+            //     this._defaultAd.destory();
+            //     this._defaultAd = null;
+            // }
+            this._defaultAd = new DeerBannerAd(null, this.adLocation, 0, 0, this.maxHeight, this.maxWidth);
+        }
+
+        this.nextAd();
+
+        //如果有设置多个banner广告
+        if (this.bannerAdIDs.length > 1 && this.refreshAdMaxDelay > 0) {
+            let t: number = Math.max(this.refreshAdMaxDelay, this.refreshAdMinDelay);
+            if (t > 0) {
+                this.schedule(this.tryNextAd, t, cc.macro.REPEAT_FOREVER);
+            }
+        }
+
+        if (this.bannerAdIDs.length == 0 || !this.bannerAdIDs[0]) {
+            throw new Error("Please set banner ad id!");
+        }
+    }
+
+
+    //上次刷新广告的时间
+    private _lastRefreshAdTime: number = 0;
+
+
+    //当前广告是否有显示过
+    private _currentAdHasShown: boolean = false;
+
+    //当前广告是否正在显示
+    private _currentAdIsShowing: boolean = true;
+
+    private tryNextAd(): void {
+        if (!this._currentAdHasShown) return;
+
+        this.nextAd();
+    }
+
+
+    private _currentAdID: string;
+
+    public get currentAdID(): string {
+        return this._currentAdID
+    }
+
+    /**
+     * 显示下一个广告
+     */
+    public nextAd(): void {
+        //如果没有设置任何banner广告，使用deer sdk的广告
+        if (this.bannerAdIDs.length == 0) this._useWXBannerAd = false;
+
+        //==================================================================
+        //检查服务器配置的概率
+        //==================================================================
+        if (this._useWXBannerAd && DeerSDK.instance.game_config) {
+            let myBannerAdRate: number = DeerSDK.instance.game_config["myBAdRate"];
+            if (!isNaN(myBannerAdRate) && Math.random() < myBannerAdRate) {
+                this._useWXBannerAd = false;
+            }
+        }
+        //==================================================================
+
+        //设置最小间隔时间。显示微信广告的时候才处理最小时间
+        if (this._useWXBannerAd) {
+            if (new Date().getTime() - this._lastRefreshAdTime < this.refreshAdMinDelay * 1000) {
+                return;
+            }
+        }
+
+        if (this._wxBannerAd) {
+            this._wxBannerAd.removeEventListener(WXEventNames.BANNER_AD_HIDE, this.adHideHandler, this);
+            this._wxBannerAd.removeEventListener(WXEventNames.BANNER_AD_SHOW, this.adShowHandler, this);
+            this._wxBannerAd.removeEventListener(WXEventNames.BANNER_AD_RESIZE, this.adResizeHandler, this);
+            this._wxBannerAd.removeEventListener(WXEventNames.BANNER_AD_NEXT, this.adNextHandler, this);
+            this._wxBannerAd.removeEventListener(WXEventNames.BANNER_AD_ERROR, this.adErrorHandler, this);
+            this._wxBannerAd.destory();
+            this._wxBannerAd = null;
+        }
+
+        //记录刷新时间
+        this._lastRefreshAdTime = new Date().getTime();
+
+        //广告不曾显示过
+        this._currentAdHasShown = false;
+
+        // console.log("【Next Ad】", this._currentAdID)
+        if (this._useWXBannerAd) {
+            if (this.bannerAdIDs.length > 0) {//广告id数量比如1个以上
+                let adID: string;
+                if (this.refreshRandom && this.bannerAdIDs.length > 1) {
+                    //随机
+                    let adsCopy: Array<string> = this.bannerAdIDs.concat();
+                    let oIndex: number = adsCopy.indexOf(this._currentAdID);
+                    if (oIndex >= 0) adsCopy.splice(oIndex, 1);
+
+                    adID = adsCopy[Math.floor(Math.random() * adsCopy.length)];
+                } else {
+                    //轮流
+                    let crtIndex: number = this.bannerAdIDs.indexOf(this._currentAdID) + 1;
+                    crtIndex = crtIndex % this.bannerAdIDs.length;
+
+                    adID = this.bannerAdIDs[crtIndex];
+                }
+
+                if (adID == this._currentAdID) return;//只有一个广告
+
+                this._currentAdID = adID;
+
+                //检查是否存在banner广告。比如上一个场景的banner广告，没有设定自动销毁。
+                //此时可以直接使用，而不是新建
+                if (WXBannerAd.currentAd && WXBannerAd.currentAd instanceof WXBannerAd) {
+                    this._wxBannerAd = WXBannerAd.currentAd;
+                } else {
+                    this._wxBannerAd = new WXBannerAd(this._currentAdID, this.adLocation, 0, 0, this.maxHeight, this.maxWidth);
+                }
+
+                this._wxBannerAdIsWX = true;
+            }
+        } else {
+            if (this.deerAdAsDefault) {
+                //如果使用自有广告作为默认广告，此时不应该在出现其他默认广告
+                return;
+            }
+
+            this._wxBannerAd = new DeerBannerAd(this._currentAdID, this.adLocation, 0, 0, this.maxHeight, this.maxWidth);
+            this._wxBannerAdIsWX = false;
+
+            //下一次尝试使用微信banner广告
+            this._useWXBannerAd = true;
+        }
+
+
+        //如果iphoneX，不显示边框
+        // if (Utils.isIphoneX) this._wxBannerAd.borderWeight = 0;
+
+        this._wxBannerAd.addEventListener(WXEventNames.BANNER_AD_HIDE, this.adHideHandler, this);
+        this._wxBannerAd.addEventListener(WXEventNames.BANNER_AD_SHOW, this.adShowHandler, this);
+        this._wxBannerAd.addEventListener(WXEventNames.BANNER_AD_RESIZE, this.adResizeHandler, this);
+        this._wxBannerAd.addEventListener(WXEventNames.BANNER_AD_NEXT, this.adNextHandler, this);
+        this._wxBannerAd.addEventListener(WXEventNames.BANNER_AD_ERROR, this.adErrorHandler, this);
+        if (this._currentAdIsShowing) this._wxBannerAd.show();
+    }
+
+    update(dt) {
+        return;
+        if (!this.hideWhenHasPopUp) return;
+
+        let frames: number = cc.director.getTotalFrames();
+        if (frames % 20 == 0) {
+            // if (this.hideWhenHasPopUp && GameManager.popUpManager.popUpCount > 0) {
+                if (this.hideWhenHasPopUp) {
+                this._wxBannerAd.hide();
+            } else {
+                this._wxBannerAd.show();
+            }
+        }
+    }
+
+    // private _isFirstShow:boolean = true;
+
+    /**
+     * banner显示
+     * 
+     * @param e 
+     */
+    private adShowHandler(e: EventData): void {
+        if (!this.node.isValid) return;
+        if (e.target != this._wxBannerAd) return;
+
+        // if (this._isFirstShow) {
+        // this._isFirstShow = false;
+        // } else {
+        this._currentAdHasShown = true;
+        this._currentAdIsShowing = true;
+        // }
+
+        this.relayout();
+    }
+
+    /**
+     * banner隐藏
+     * 
+     * @param e 
+     */
+    private adHideHandler(e: EventData): void {
+        if (!this.node.isValid) return;
+        if (e.target != this._wxBannerAd) return;
+
+        this._currentAdIsShowing = false;
+        this.relayout();
+    }
+
+
+
+    // private _isFirstTime: boolean = true;
+
+    private adResizeHandler(e: EventData): void {
+        if (!this.node.isValid) return;
+
+        if (e.target != this._wxBannerAd) return;
+
+        this.relayout();
+        
+        //检查是否有显示过
+        if (!this._currentAdIsShowing) {
+            this._wxBannerAd.hide();
+        } else {
+            this._currentAdHasShown = true;
+        }
+
+        this.node.dispatchEvent(new cc.Event(WXEventNames.BANNER_AD_RESIZE, false));
+    }
+
+
+    /**
+     * 重新布局节点
+     */
+    public relayout(): void {
+        if (this._wxBannerAd && this._wxBannerAd.isShowing && this._wxBannerAd.adRect) {
+            let rect: cc.Rect = new cc.Rect(this._wxBannerAd.adRect.x, this._wxBannerAd.adRect.y, this._wxBannerAd.adRect.width, this._wxBannerAd.adRect.height);
+            rect = Utils.fromScreenRect(rect);
+            if (rect) {
+                this.node.opacity = 255;
+
+                this.node.x = rect.x;
+                this.node.y = rect.y;
+                this.node.scaleX = rect.width / this.node.width;
+                this.node.scaleY = rect.height / this.node.height;
+
+                if (this._defaultAd) {
+                    this._defaultAd.destory();
+                    this._defaultAd = null;
+                }
+
+                return;
+            }
+        }
+
+        this.node.opacity = 0;
+        this.node.scale = 0;
+    }
+
+
+    private adNextHandler(e: EventData): void {
+        if (!this.node.isValid) return;
+
+        this.nextAd();
+    }
+
+
+    private adErrorHandler(e: EventData): void {
+        if (!this.node.isValid) return;
+
+        if (this._wxBannerAdIsWX) {
+            //如果之前使用的是微信广告
+            this._useWXBannerAd = false;
+            this.nextAd();
+        }
+    }
+
+    // update (dt) {}
+
+    onDestroy() {
+        if (this._wxBannerAd) {
+            this._wxBannerAd.removeEventListener(WXEventNames.BANNER_AD_HIDE, this.adHideHandler, this);
+            this._wxBannerAd.removeEventListener(WXEventNames.BANNER_AD_SHOW, this.adShowHandler, this);
+            this._wxBannerAd.removeEventListener(WXEventNames.BANNER_AD_RESIZE, this.adResizeHandler, this);
+            this._wxBannerAd.removeEventListener(WXEventNames.BANNER_AD_NEXT, this.adNextHandler, this);
+            this._wxBannerAd.removeEventListener(WXEventNames.BANNER_AD_ERROR, this.adErrorHandler, this);
+
+
+            // if (this.autoRelease || !this._wxBannerAdIsWX) {
+            if ((this.autoRelease || !this._wxBannerAdIsWX) && Utils.iphoneBottomBarHeight == 0) {
+                //iphonex下，banner广告再次创建时，会不断往上移动
+                this._wxBannerAd.destory();
+            } else {
+                this._wxBannerAd.hide();
+            }
+
+            this._wxBannerAd = null;
+        }
+
+        if (this._defaultAd) {
+            this._defaultAd.destory()
+            this._defaultAd = null;
+        }
+
+    }
+}

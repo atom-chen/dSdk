@@ -1,0 +1,42 @@
+{
+    "extends": "./tsconfig_base.json",
+
+    "compilerOptions": {
+        "outDir": "../release/1.9_pub",
+        "sourceMap": false,
+        "inlineSourceMap":false,
+        "removeComments": true,
+        "allowJs": false,
+        "experimentalDecorators": true,
+        "declaration":true,
+        "emitDeclarationOnly":false
+    },
+
+    "include": [
+        "ForLaya.ts",
+        "deer/DeerSDK.ts",
+        "wechat/WXShare.ts"
+    ],
+
+    "exclude": [
+        "wechat/rank/*",
+        "wechat/Comp_NearToMenuButton.ts",
+        "wechat/Comp_NearToWXBannerAd.ts",
+        "wechat/Comp_WXBannerAd.ts",
+        "wechat/DeerBannerAd.ts",
+        "wechat/WXBannerAd.ts",
+        "wechat/WXBannerAdBase.ts",
+        "wechat/WXCore.ts",
+        "wechat/WXData.ts",
+        "wechat/WXDevice.ts",
+        "wechat/WXEventNames.ts",
+        "wechat/WXImage.ts",
+        "wechat/WXOpenData.ts",
+        "wechat/WXRewardVideoAd.ts",
+        "wechat/WXRewardVideoAdCloseComfirm.ts",
+        "wechat/WXUser.ts",
+        "components/*",
+        "libs/*",
+        "managers/*"
+    ]
+}

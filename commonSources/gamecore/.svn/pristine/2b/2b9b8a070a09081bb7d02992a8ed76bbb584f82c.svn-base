@@ -1,0 +1,162 @@
+import GameValues, { Orientation } from "../base/GameValues";
+import { Base_init } from "./Base";
+
+
+
+
+/**
+ * ios接口调用
+ * 
+ * 
+ * 
+ * 返回数据说明：
+ * {
+ *      "err_code":0, 
+ *      "err_msg":""
+ *      "data:{
+ *              
+ *      }
+ * }
+ * 
+ * 
+ * err_code:
+ *      0               没有错误，接口调用成功
+ *      
+ *      1000            未知错误
+ *      1001            接口不存在
+ *      1002            参数错误
+ * 
+ * 
+ * 
+ * @param pkgName       包名
+ */
+export const IOS_init = function () {
+    Base_init();
+
+    var wx = window["wx"]
+
+
+    /**
+     * 调用方法
+     */
+    wx.__callJSB = function (methodName: string, data: any = null, success: Function = null, fail: Function = null): any {
+        if (!data) data = {};
+
+        console.log("call jsb", methodName, data);
+
+        let dataS: string = JSON.stringify(data);
+        let resultData: any = jsb.reflection.callStaticMethod("NativeAPI", methodName + ":", dataS);
+        console.log("\t\t call result", resultData)
+        try {
+            let v: any = JSON.parse(resultData);
+            if (v.err_code == 0) {
+                if (success) success(v.data)
+                return;
+            }
+
+            if (fail) fail(v)
+            return;
+        } catch (error) {
+            console.log("\t\t jsb data error", error)
+        }
+
+        if (fail) fail({});
+    }
+
+    //=========================================================================
+    //登陆
+    //=========================================================================
+
+    /**
+     * @param   obj
+     *  {
+     *      
+     *  }
+     * 
+     * 返回数据：
+     * {
+     *      "data":{
+     *          "uid":"",
+     *          "nickname":"",
+     *          "avatar":"",
+     *          "gender":""                 1：男， 2：女
+     *      }
+     * }
+     */
+    wx.login = function (obj: any): void {
+        console.log("------【IOS】 login-------")
+        console.log(JSON.stringify(obj));
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+        wx.__callJSB("login", null,
+            (res: any) => {
+                wx.__userInfoRes = {
+                    "userInfo": {
+                        "openId": res["uid"],
+                        "nickName": res["nickName"],
+                        "avatarUrl": res["avatar"],
+                        "gender": (res["sex"] == "M" ? "1" : "2")
+                    },
+                    "rawData": "",
+                    "encryptedData": "",
+                    "signature": ""
+                }
+
+                if (successFun) successFun({ code: res["uid"] });
+                if (completeFun) completeFun();
+            },
+            (err: any) => {
+                if (failFun) failFun(err);
+                if (completeFun) completeFun();
+            }
+        );
+
+    }
+
+
+
+
+    //=========================================================================
+    //小程序跳转
+    //=========================================================================
+
+    /* 
+     * @param   obj
+     *  {
+     *      "appId": string,
+     *      "extraData": extraData
+     *  }
+     * 
+     * 返回数据：
+     * {
+     *      "data":{
+     *          
+     *      }
+     * }
+     **/
+    wx.navigateToMiniProgram = function (obj: any) {
+        console.log("------【IOS】 navigateToMiniProgram-------")
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+        wx.__callJSB("showApp", null,
+            (res: any) => {
+                if (successFun) successFun(res);
+                if (completeFun) completeFun();
+            },
+            (err: any) => {
+                if (failFun) failFun(err);
+                if (completeFun) completeFun();
+            }
+        );
+    }
+    //=========================================================================
+
+
+}
+

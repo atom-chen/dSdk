@@ -1,0 +1,267 @@
+import EventData from "../managers/event/EventData";
+import DeerSDK from "../deer/DeerSDK";
+import DeerSDKEventNames from "../deer/DeerSDKEventNames";
+import GameManager from "../managers/GameManager";
+import GameCoreEventNames from "../GameCoreEventNames";
+
+const { ccclass, property } = cc._decorator;
+
+/**
+ * 将本地已设置同步到服务器的数据，同步到微信CDN服务器
+ * 
+ * 
+ * @see https://developers.weixin.qq.com/minigame/dev/wxcloud/guide/storage/api.html
+ */
+@ccclass
+export default class SyncDataToWXCloud {
+
+
+    private static _instance: SyncDataToWXCloud;
+
+
+    public static get instance(): SyncDataToWXCloud {
+        if (!SyncDataToWXCloud._instance) new SyncDataToWXCloud();
+        return SyncDataToWXCloud._instance;
+    }
+
+
+    /**
+     * 云端数据
+     */
+    private _cloudData: object = {}
+
+    private _cloudFilePath:string;
+
+    constructor() {
+        if (SyncDataToWXCloud._instance) throw new Error("Please use static instance property");
+        SyncDataToWXCloud._instance = this;
+
+
+        try {
+            wx.cloud.init({});
+        } catch (error) {
+        }
+
+        this.doInit();
+    }
+
+
+
+    private doInit(): void {
+        if (DeerSDK.instance.isReady) {
+            this.doInit2();
+        } else {
+            DeerSDK.instance.addEventListener(DeerSDKEventNames.READY, (e: EventData) => {
+                this.doInit2();
+            }, this, 0, true);
+        }
+    }
+
+
+    private _forbidToSyncDataFromService: boolean = false;
+    /**
+     * 禁止从服务器下载数据
+     */
+    public forbidToSyncDataFromService(): void {
+        this._forbidToSyncDataFromService = true;
+    }
+
+
+
+    private doInit2(): void {
+        //添加事件监听
+        GameManager.eventManager.addEventListener(GameCoreEventNames.DATA_REMOTE_CHANGE, this.dataManagerSerializeHandler, this);
+
+        if (this._forbidToSyncDataFromService) {
+            this._isReady = true;
+        } else {
+            this.syncDataFromServiceToDataManager();
+        }
+
+        var self = this;
+        if (typeof wx != "undefined") {
+            wx.onHide(() => {
+                console.log("【SyncDataToWXCloud】onHide");
+                self.syncDataFromDataManagerToService();
+            });
+
+            //qq厘米秀才支持该方法
+            if (wx.onClose) {
+                wx.onClose(() => {
+                    console.log("【SyncDataToWXCloud】onClose");
+                    self.syncDataFromDataManagerToService();
+                })
+            }
+        }
+    }
+
+
+    private _isReady: boolean = false;
+
+
+    /**
+     * 是否已准备完毕
+     */
+    public get isReady(): boolean {
+        return this._isReady;
+    }
+
+
+    /*
+     * 同步服务器数据到本地
+     */
+    public syncDataFromServiceToDataManager(): void {
+        let fileID:string = DeerSDK.instance.game_dataID;
+        if (!fileID) {
+            this._isReady = true;
+            console.log("【SyncDataToWXCloud】fileID不存在", fileID)
+            return;
+        }
+
+        try {
+            wx.cloud.downloadFile({
+                fileID: fileID,
+                success: (res) => {
+                    console.log("【SyncDataToWXCloud】从微信Cloud下载数据成功", fileID)
+                    // 返回临时文件路径
+                    this.readFile(res.tempFilePath);
+                },
+                fail: (err) => {
+                    console.log("【SyncDataToWXCloud】从微信Cloud下载数据失败", err)
+                },
+                complete:() => {
+                    this._isReady = true;
+                }
+            });
+        } catch (error) {
+            this._isReady = true;
+            console.log("【SyncDataToWXCloud】从微信Cloud下载数据失败")
+        }
+    }
+
+
+
+    private readFile(filePath: string): void {
+        try {
+            let fs = wx.getFileSystemManager();
+            fs.readFile(
+                {
+                    filePath: filePath,
+                    encoding: "utf-8",
+                    success: (res) => {
+                        try {
+                            this._cloudData = JSON.parse(res.data);
+
+                            //写入本地
+                            Object.keys(this._cloudData).forEach((key:string)=>{
+                                GameManager.dataManager.setData(key, this._cloudData[key], true, false, true);
+                            });
+
+                            console.log("【SyncDataToWXCloud】解析数据文件成功", this._cloudData);
+                        } catch (error) {
+                            console.log("【SyncDataToWXCloud】解析数据文件失败")
+                        }
+                    },
+                    fail: (err) => {
+                        console.log("【SyncDataToWXCloud】读取数据文件失败")
+                    }
+                }
+            );
+        } catch (error) {
+            console.log("【SyncDataToWXCloud】读取数据文件失败")
+        }
+    }
+
+
+
+
+
+
+    //上一次同步数据到服务器的时间
+    private _lastSyncTime: number = 0;
+
+    /**
+     * 数据中心本地数据序列化事件控制
+     * 
+     */
+    private dataManagerSerializeHandler(e: EventData): void {
+        console.log("数据中心本地数据序列化事件控制")
+
+        //最小间隔10秒
+        let now: number = new Date().getTime();
+        if (now - this._lastSyncTime > 40000) {
+            this._lastSyncTime = now;
+
+            //保存数据到服务器
+            this.syncDataFromDataManagerToService();
+        }
+    }
+
+    private _lastSyncValue: string;
+    private _lastTrySyncValue: string;
+
+    /**
+     * 同步本地数据到服务器
+     */
+    public syncDataFromDataManagerToService(): void {
+        //写入文件
+        this._lastTrySyncValue = GameManager.dataManager.getDataNeedSyncToServer();
+
+        if (this._lastTrySyncValue == this._lastSyncValue) return;
+
+        //更新内存数据，并写入文件
+        try {
+            if (!this._cloudData) this._cloudData = {};
+
+            let updateValues: object = JSON.parse(this._lastTrySyncValue);
+            Object.keys(updateValues).forEach((key: string) => {
+                this._cloudData[key] = updateValues[key];
+            });
+
+            console.log("【SyncDataToWXCloud】写入本地，准备上传", this._cloudData)
+            let localFilePath:string = wx.env.USER_DATA_PATH + "/temp_file_to_wx_cloud.json";
+
+            //写入到本地
+            let fs = wx.getFileSystemManager();
+            fs.writeFile(
+                {
+                    filePath: localFilePath,
+                    data:JSON.stringify(this._cloudData),
+                    encoding: "utf-8",
+                    success: (res) => {
+                        let cloudFilePath:string = "ugd__" + DeerSDK.instance.game_id + "_" + DeerSDK.instance.userVO.id;
+                        
+                        console.log("【SyncDataToWXCloud】写入本地成功，开始上传")
+                        try {
+                            wx.cloud.uploadFile({
+                                cloudPath: cloudFilePath,
+                                filePath: localFilePath,
+                                success: (res) => {
+                                    this._lastSyncValue = this._lastTrySyncValue;
+
+                                    //保存file id
+                                    console.log(res.fileID)
+                                    DeerSDK.instance.game_saveDataIDToService(res.fileID);
+                                    console.log("【SyncDataToWXCloud】上传数据成功", res)
+                                },
+                                fail: (err) => {
+                                    console.log("【SyncDataToWXCloud】上传数据失败")
+                                }
+                            })
+                        } catch (error) {
+                            console.log("【SyncDataToWXCloud】上传数据失败")
+                        }
+                    },
+                    fail: (err) => {
+                        console.log("【SyncDataToWXCloud】写入本地失败")
+                    }
+                }
+            );
+        } catch (error) {
+
+        }
+
+        
+    }
+
+}

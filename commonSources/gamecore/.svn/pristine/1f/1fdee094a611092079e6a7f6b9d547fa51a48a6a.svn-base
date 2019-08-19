@@ -1,0 +1,25 @@
+{
+    "extends": "./tsconfig_base.json",
+
+    "compilerOptions": {
+        "outDir": "../release/1.9_pub",
+        "sourceMap": false,
+        "inlineSourceMap":false,
+        "removeComments": true,
+        "allowJs": false,
+        "experimentalDecorators": true,
+        "declaration":true,
+        "emitDeclarationOnly":false
+    },
+
+    "include": [
+        "deer/DeerSDK.ts"
+    ],
+
+    "exclude": [
+        "wechat/*",
+        "components/*",
+        "libs/*",
+        "managers/*"
+    ]
+}

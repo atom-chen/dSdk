@@ -1,0 +1,38 @@
+{
+    "extends": "./tsconfig_base.json",
+
+    "compilerOptions": {
+        "outDir": "../release/1.9",
+        "sourceMap": false,
+        "inlineSourceMap":false,
+        "removeComments": true,
+        "allowJs": false,
+        "experimentalDecorators": true,
+        "declaration":true,
+        "emitDeclarationOnly":false,
+        // "declarationDir": "../test/assets/Script/gamecore/d",
+    },
+
+    "include": [
+        "base/*",
+        "components/*",
+        "managers/*",
+        "managers/**/*",
+        "wechat/*",
+        "wechat/**/*",
+        "xiaoyaoji/*",
+        "libs/*",
+        "utils/*",
+        "deer/*",
+        "platforms/*",
+    ],
+
+    "exclude": [
+        "platforms/Base.ts",
+        "platforms/QQCM.ts",
+        "platforms/JRTT.ts",
+        "platforms/FBIN.ts",
+        "platforms/Oppo.ts",
+        "platforms/IOS.ts"
+    ]
+}

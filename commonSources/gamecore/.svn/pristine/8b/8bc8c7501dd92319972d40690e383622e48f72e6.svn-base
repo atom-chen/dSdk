@@ -1,0 +1,1680 @@
+import GameValues, { Orientation } from "../base/GameValues";
+import QQCM_gameInfo from "./QQCM_gameInfo";
+
+
+
+
+var FBIN_startTime: Date;
+
+/**
+ * 针对facebook instant game 生成兼容微信小游戏平台的方法
+ * 
+ * 
+ * 文档：https://developers.facebook.com/docs/games/instant-games/sdk/fbinstant6.2
+ * 测试：https://developers.facebook.com/docs/games/instant-games/test-publish-share#testing
+ * 
+ * 
+ */
+export const FBIN_init = function () {
+    //开始时间
+    FBIN_startTime = new Date();
+
+
+    window["wx"] = {}
+    var wx = window["wx"]
+
+    //=========================================================================
+    //画布
+    //=========================================================================
+    let canvas: any = GameValues.canvas;
+    if (canvas) {
+        /**
+         * 同步获取的是canvas数据
+         */
+        //@see https://hudong.qq.com/docs/engine/engine/native/func/funcs/other.html
+        canvas.toTempFilePathSync = function (obj: any): string {
+            console.log("------【FB Instant】 toTempFilePathSync-------");
+            if (!obj) obj = {};
+            console.log(JSON.stringify(obj))
+
+            if (typeof FBInstant == "undefined") return;
+
+            let x: number = obj["x"] || 0;
+            let y: number = obj["y"] || 0;
+            let width: number = obj["width"] || 0;
+            let height: number = obj["height"] || 0;
+            let fileType: string = obj["fileType"] || "png";
+
+            //左下角为0 0点
+            y = BK.Director.screenPixelSize.height - y - height;
+
+            let ss = new BK.ScreenShot();
+            ss.origin = { x: x, y: y };// 设置截图区域原点
+            ss.size = { width: width, height: height };// 设置截图区域大小
+
+            let fileName: string = "screenshot_" + (new Date().getTime());
+
+            // 截图得到的文件存放在GameSandBox路径下。
+            let filePath: string = ss.shotToFile(fileName, fileType);
+            console.log("【FB Instant】file saved at " + filePath);
+
+            return filePath;
+        }
+
+        /**
+         * 异步获取的是webGL数据
+         */
+        canvas.toTempFilePath = function (obj: any): void {
+            console.log("------【FB Instant】 toTempFilePath-------")
+            console.log(JSON.stringify(obj));
+
+            if (!obj) return;
+
+            let successFun: Function = obj ? obj["success"] : null;
+            let failFun: Function = obj ? obj["fail"] : null;
+            let completeFun: Function = obj ? obj["complete"] : null;
+
+            if (typeof FBInstant == "undefined") return;
+
+            let x: number = obj["x"] || 0;
+            let y: number = obj["y"] || 0;
+            let width: number = obj["width"] || 0;
+            let height: number = obj["height"] || 0;
+            let fileType: string = obj["fileType"] || "png";
+
+            //左下角为0 0点
+            y = BK.Director.screenPixelSize.height - y - height;
+
+            // console.log("**** BK.Director.screenScale = " + BK.Director.screenScale);
+            // console.log("**** BK.Director.renderSize = " + JSON.stringify(BK.Director.renderSize));
+            // console.log("**** BK.Director.screenPixelSize = " + JSON.stringify(BK.Director.screenPixelSize));
+
+            let ss = new BK.ScreenShot();
+            ss.origin = { "x": x, "y": y };// 设置截图区域原点
+            ss.size = { width: width, height: height };// 设置截图区域大小
+
+            // 截图得到的文件存放在GameSandBox路径下。
+            let fileName: string = "screenshot_" + (new Date().getTime());
+            ss.shotToFileFromGL(bkWebGLGetInstance(), fileName, fileType, (filePath: string) => {
+                console.log("【FB Instant】file saved at " + filePath);
+
+                let res: object = {
+                    tempFilePath: filePath
+                };
+
+                if (filePath) {
+                    if (successFun) successFun(res);
+                    if (completeFun) completeFun();
+                } else {
+                    if (failFun) failFun();
+                    if (completeFun) completeFun();
+                }
+            });
+        }
+
+
+
+    }
+    //=========================================================================
+
+
+    //=========================================================================
+    //图片
+    //=========================================================================
+    wx.createImage = function (): any {
+        console.log("------【FB Instant】 createImage-------")
+        let img: any = new Image();
+        img.crossOrigin = 'anonymous';
+        console.log("image is " + JSON.stringify(img));
+        return img;
+    }
+    //=========================================================================
+
+
+
+    //=========================================================================
+    //游戏圈
+    //=========================================================================
+    wx.createGameClubButton = function (obj: any): any {
+        return {
+            onTap: function (callback: Function): void {
+            },
+            offTap: function (callback: Function): void {
+            },
+            show: function (): void {
+            },
+            hide: function (): void {
+            },
+            destory: function (): void {
+            }
+        };
+    }
+    //=========================================================================
+
+    //=========================================================================
+    //登陆
+    //=========================================================================
+
+    //微信登陆
+    wx.login = function (obj: any): void {
+        console.log("------【FB Instant】 login-------")
+
+        if (typeof FBInstant == "undefined") return;
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+        let res: object = {};
+
+        res["code"] = "";//data.openKey;
+
+        if (successFun) successFun(res);
+        if (completeFun) completeFun();
+    }
+
+
+    //=========================================================================
+    //设备
+    //=========================================================================
+    wx.vibrateShort = function (obj: any): void {
+        console.log("------【FB Instant】 vibrateShort-------")
+    }
+    wx.vibrateLong = function (obj: any): void {
+        console.log("------【FB Instant】 vibrateLong-------")
+    }
+    wx.onMemoryWarning = function (callback: Function): void {
+        console.log("------【FB Instant】 onMemoryWarning-------")
+    }
+    //=========================================================================
+
+
+
+    //=========================================================================
+    //用户信息
+    //=========================================================================
+
+    //用户信息
+    wx._userInfoRes = null;
+
+    //获取用户信息
+    wx.getUserInfo = function (obj: any = null): void {
+        console.log("------【FB Instant】 getUserInfo-------")
+
+        if (typeof FBInstant == "undefined") return;
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+        if (wx._userInfoRes != null) {
+            if (successFun) successFun(wx._userInfoRes);
+            if (completeFun) completeFun();
+            return;
+        }
+
+
+        FBInstant.player.getSignedPlayerInfoAsync()
+            .then(function (result) {
+                let res: object = {
+                    //nickName: string, avatarUrl: string, gender: number, country: string, province: string, city: string } = null;
+                    "userInfo": {
+                        "nickName": FBInstant.player.getName(),
+                        "avatarUrl": FBInstant.player.getPhoto(),
+                        "gender": QQCM_gameInfo.sex,
+                    },
+                    "rawData": "",
+                    "encryptedData": result.getSignature(),
+                    "signature": ""
+                }
+
+                wx._userInfoRes = res;
+                if (successFun) successFun(res);
+                if (completeFun) completeFun();
+            });
+    }
+
+
+    wx.createUserInfoButton = function (obj: any = null): any {
+        console.log("------【FB Instant】 createUserInfoButton-------")
+        console.log(obj);
+
+        return null;
+    }
+    //=========================================================================
+
+
+    //=========================================================================
+    //开放数据
+    //=========================================================================
+
+
+    wx.getFriendCloudStorage = function (obj: object): void {
+        console.log("------【FB Instant】 getFriendCloudStorage-------")
+        console.log(obj)
+        if (!obj) return;
+
+        if (typeof FBInstant == "undefined") return;
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+
+        //@see https://hudong.qq.com/docs/engine/userInfo/rank.html#5
+        // 排序的方法：[ 1: 从大到小(单局)，2: 从小到大(单局)，3: 由大到小(累积)]
+        // var rankType = 0; //要查询的排行榜类型，0: 好友排行榜，1: 群排行榜，2: 讨论组排行榜，3: C2C二人转 (手Q 7.6.0以上支持)
+        // 必须配置好周期规则后，才能使用数据上报和排行榜功能
+        // let errCode = 0;
+        // let cmd = ""
+        // let data:any = JSON.parse('{"data":{"ranking_list":[{"nick":"laan","score":10,"selfFlag":1,"url":"http://thirdqq.qlogo.cn/g?b=sdk&k=IfYApSUGXLfESO24mAcl3Q&s=40&t=1483287545"}]},"seqId":0}');
+        BK.QQ.getRankListWithoutRoom("score", 1, 0, (errCode, cmd, data) => {
+            console.log("getRankListWithoutRoom callback  cmd" + cmd + " errCode:" + errCode + "  data:" + JSON.stringify(data));
+            // 返回错误码信息
+            if (errCode !== 0) {
+                console.log('获取排行榜数据失败!错误码：' + errCode);
+                if (failFun) failFun(errCode);
+                if (completeFun) completeFun();
+                return;
+            }
+
+            let rankData: Array<any> = [];
+            // 解析数据
+            if (data) {
+                for (var i = 0; i < data.data.ranking_list.length; ++i) {
+                    let obj: object = data.data.ranking_list[i];
+
+                    let userData: object = {
+                        avatarUrl: obj["url"],
+                        nickname: obj["nick"],
+                        openid: 0,
+                        isSelf: obj["selfFlag"],
+                        KVDataList: [
+                            {
+                                "wxgame": {
+                                    "score": obj["score"]
+                                }
+                            }
+                        ],
+                    }
+
+                    rankData.push(userData);
+                }
+            }
+
+            // console.log("返回数据为");
+            // console.log(JSON.stringify(rankData))
+
+            if (successFun) successFun({ "data": rankData });
+            if (completeFun) completeFun();
+        });
+    }
+
+
+    /**
+     * 读取用户数据
+     */
+    wx.getUserCloudStorage = function (obj: object): void {
+        console.log("------【FB Instant】 setUserCloudStorage-------")
+        console.log(obj)
+        if (!obj) return;
+
+        if (typeof FBInstant == "undefined") return;
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+
+        if (failFun) failFun(0);
+        if (completeFun) completeFun();
+    }
+
+
+    /**
+     * 保存用户数据
+     */
+    wx.setUserCloudStorage = function (obj: object): void {
+        console.log("------【FB Instant】 setUserCloudStorage-------")
+        console.log(obj)
+        if (!obj) return;
+
+        if (typeof FBInstant == "undefined") return;
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+
+        //分数
+        let scoreV: number;
+
+        let detailV: string = null;
+
+        let KVDataList: Array<any> = obj["KVDataList"];
+        if (KVDataList) {
+            for (let i: number = 0; i < KVDataList.length; i++) {
+                let KVData: any = KVDataList[i];
+                let key: string = KVData["key"];
+                let value: string = KVData["value"];
+
+                try {
+                    let obj: object = JSON.parse(value);
+                    if (obj["wxgame"]) {
+                        scoreV = Math.floor(obj["wxgame"]["score"]);
+                    }
+
+                    detailV = JSON.stringify(KVData);
+                } catch (error) {
+
+                }
+            };
+        }
+
+        if (!isNaN(scoreV)) {
+            FBInstant.getLeaderboardAsync('fbin_leaderboard')
+                .then(function (leaderboard) {
+                    return leaderboard.setScoreAsync(scoreV, detailV);
+                })
+                .then(function (entry) {
+                    if (successFun) successFun(entry);
+                    if (completeFun) completeFun();
+                })
+        } else {
+            if (failFun) successFun(failFun);
+            if (completeFun) completeFun();
+        }
+    }
+
+    //=========================================================================
+
+    //=========================================================================
+    //设置
+    //=========================================================================
+    wx.getSetting = function (obj: any): void {
+        console.log("------【FB Instant】 getSetting-------")
+        console.log(obj)
+        if (!obj) return;
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+        let res: any = {
+            "authSetting": {
+                "scope.userInfo": true
+            }
+        }
+
+        if (successFun) successFun(res);
+        if (completeFun) completeFun();
+    }
+    //=========================================================================
+
+
+    //=========================================================================
+    //小程序跳转
+    //=========================================================================
+    wx.navigateToMiniProgram = function (obj: any) {
+        console.log("------【FB Instant】 navigateToMiniProgram-------")
+        console.log(obj)
+        if (!obj) return;
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+        let gameId: string = obj["appId"]; //跳转的gameid，必须为数字
+
+        FBInstant.switchGameAsync(gameId).catch(function (e) {
+            // Handle game change failure
+        });
+
+
+    }
+    //=========================================================================
+
+    //=========================================================================
+    //开放数据域
+    //=========================================================================
+    wx.__openDataContext = {
+        callbacks: [],
+        postMessage: function (msg: any): void {
+            wx.__openDataContext.callbacks.forEach(fun => {
+                fun(msg);
+            });
+        }
+    }
+    wx.getOpenDataContext = function (): any {
+        return wx.__openDataContext;
+    }
+
+    wx.onMessage = function (callback: Function): void {
+        let callbacks: Array<Function> = wx.__openDataContext.callbacks;
+        if (callbacks.indexOf(callback) == -1) {
+            callbacks.push(callback);
+        }
+    }
+    //=========================================================================
+
+
+
+
+    //=========================================================================
+    //系统信息
+    //=========================================================================
+    wx.getSystemInfo = function (obj: any): any {
+        console.log("------【FB Instant】 getSetting-------")
+        console.log(obj)
+        if (!obj) return;
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+        let res: any = {
+            version: "",
+            SDKVersion: FBInstant.getSDKVersion(),
+            platform: FBInstant.getPlatform(),
+            model: "",
+            local: FBInstant.getLocale()
+        }
+
+        if (successFun) successFun(res);
+        if (completeFun) completeFun();
+    }
+    //=========================================================================
+
+
+    //=========================================================================
+    //生命周期
+    //=========================================================================
+    wx.exitMiniProgram = function (obj: any): void {
+        console.log("------【FB Instant】 exitMiniProgram-------")
+        console.log(obj)
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+        FBInstant.quit();
+
+        if (successFun) successFun({});
+        if (completeFun) completeFun();
+    }
+
+    wx.__query = null;
+    wx.getLaunchOptionsSync = function (): any {
+        console.log("------【FB Instant】 getLaunchOptionsSync-------")
+
+        if (wx.__query == null) {
+            try {
+                let queryV: string = QQCM_gameInfo.gameParam;
+                wx.__query = JSON.parse('{"' + decodeURI(queryV).replace(/"/g, '\\"').replace(/&/g, '","').replace(/=/g, '":"') + '"}')
+            } catch (error) {
+                wx.__query = {}
+            }
+        }
+
+        return {
+            scene: 0,
+            query: wx.__query,
+            isSticky: 0,
+            shareTicket: null,
+        }
+    }
+
+    wx.onHide = function (callback: Function): void {
+        console.log("------【FB Instant】 onHide-------")
+
+        if (typeof FBInstant == "undefined") return;
+        BK.onEnterBackground(callback);
+    }
+
+    wx.onShow = function (callback: Function): void {
+        console.log("------【FB Instant】 onShow-------");
+
+        if (typeof FBInstant == "undefined") return;
+
+        BK.onEnterForeground(callback);
+    }
+
+    wx.offHide = function (callback: Function): void {
+        console.log("------【FB Instant】 offHide-------")
+
+        if (typeof FBInstant == "undefined") return;
+        BK.offEnterBackground(callback);
+    }
+
+    wx.offShow = function (callback: Function): void {
+        console.log("------【FB Instant】 offShow-------")
+
+        if (typeof FBInstant == "undefined") return;
+        BK.offEnterForeground(callback);
+    }
+
+    wx.offShow = function (callback: Function): void {
+        console.log("------【FB Instant】 offShow-------")
+    }
+    //=========================================================================
+
+
+    //=========================================================================
+    //文件
+    //=========================================================================
+    wx.getFileSystemManager = function (): any {
+        console.log("------【FB Instant】 getFileSystemManager-------")
+
+        return {
+            readFileSync: function (filePath: string, encoding: string = "binary"): any {
+                // filePath = QQCM_doPath(filePath);
+
+                console.log("------【FB Instant】 getFileSystemManager readFileSync -------")
+                console.log("\t filePath = " + filePath)
+                console.log("\t encoding = " + encoding)
+
+                if (typeof FBInstant == "undefined") return;
+
+                try {
+                    let buffer = BK.FileUtil.readFile(filePath);
+                    console.log("file data is " + JSON.stringify(buffer));
+                    let _response = BK.Misc.BKBufferToArrayBuffer(buffer);
+                    let res: any = new Uint8Array(_response);
+
+                    if (encoding == "binary") {
+                    } else {
+                        let str: string = "";
+                        var len = res.byteLength;
+                        for (let i = 0; i < len; i++) {
+                            str += String.fromCharCode(res[i]);
+                        }
+
+                        res = str;
+                    }
+
+
+                    return res;
+                } catch (error) {
+
+                }
+
+                return null;
+            },
+
+            readFile: function (obj: object): void {
+                console.log("------【FB Instant】 getFileSystemManager readFile -------")
+                console.log(JSON.stringify(obj))
+
+                if (!obj) return;
+                if (typeof FBInstant == "undefined") return;
+
+                let successFun: Function = obj ? obj["success"] : null;
+                let failFun: Function = obj ? obj["fail"] : null;
+                let completeFun: Function = obj ? obj["complete"] : null;
+
+                let filePath: string = obj["filePath"];
+                // filePath = QQCM_doPath(filePath);
+
+                let encoding: string = obj["encoding"];
+
+                try {
+                    let buffer = BK.FileUtil.readFile(filePath);
+                    console.log("file data is " + JSON.stringify(buffer));
+                    let _response = BK.Misc.BKBufferToArrayBuffer(buffer);
+                    let res: any = new Uint8Array(_response);
+
+                    if (encoding == "binary") {
+                    } else {
+                        let str: string = "";
+                        var len = res.byteLength;
+                        for (let i = 0; i < len; i++) {
+                            str += String.fromCharCode(res[i]);
+                        }
+
+                        res = str;
+                    }
+
+
+                    if (successFun) successFun(res);
+                    if (completeFun) completeFun();
+                } catch (error) {
+                    if (failFun) failFun(error);
+                    if (completeFun) completeFun();
+                }
+
+            }
+
+        }
+
+    }
+    //=========================================================================
+
+
+    //=========================================================================
+    //转发
+    //=========================================================================
+
+    wx.getShareInfo = function (obj: any) {
+
+    }
+
+    wx.hideShareMenu = function (obj: any) {
+
+    }
+
+    wx.showShareMenu = function (obj: any) {
+
+    }
+
+    wx.updateShareMenu = function (obj: any) {
+
+    }
+    /**
+     * roomId	number	房间id	如使用BK.Room房间逻辑，可填入对应roomId，如开发者自建房间，填0
+     * summary	string	分享wording	
+     * picUrl	string	图片的网络链接	
+     * isSelectFriend	boolean	选择好友	为true则跳出选择好友的列表
+     * extendInfo	string	扩展信息	开发者可自定义该信息，用与传输参数
+     * callback	function	分享结果回调	可选 ,具体类型如下例 （手Q7.6.3以以上版本支持）
+     */
+    wx.shareAppMessage = function (obj: any): void {
+        // title	string		否	转发标题，不传则默认使用当前小游戏的昵称。	
+        // imageUrl	string		否	转发显示图片的链接，可以是网络图片路径或本地图片文件路径或相对代码包根目录的图片文件路径。显示图片长宽比是 5:4	
+        // query	string
+
+        console.log("------【FB Instant】 shareAppMessage-------")
+        console.log(JSON.stringify(obj));
+        if (!obj) return;
+
+        if (typeof FBInstant == "undefined") return;
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+        let imageURL: string = obj["imageUrl"];
+
+        //分享本地图片
+        if (imageURL && BK.FileUtil.isFileExist(imageURL)) {
+            let buf = BK.FileUtil.readFile(imageURL);
+            console.log("buf is" + JSON.stringify(buf));
+            //@see https://hudong.qq.com/docs/engine/api/BK.QQ.html?h=sharetoark
+            BK.QQ.shareToArkFromBuff(
+                QQCM_gameInfo.roomId,
+                obj["title"],
+                QQCM_gameInfo.gameParam,
+                buf
+            );
+
+            if (successFun) successFun();
+            if (completeFun) completeFun();
+
+        } else {
+            //分享网络图片
+            BK.QQ.shareToArk(
+                QQCM_gameInfo.roomId,
+                obj["title"],
+                obj["imageUrl"],
+                true,
+                QQCM_gameInfo.gameParam,
+                function (errCode) {
+                    console.log("分享结束, err code = " + errCode);
+
+                    if (errCode == 200 || errCode == 0) {
+                        if (successFun) successFun();
+                        if (completeFun) completeFun();
+                    } else {
+                        if (failFun) failFun(errCode);
+                        if (completeFun) completeFun();
+                    }
+                }
+            );
+        }
+
+
+
+    }
+
+
+    wx.onShareAppMessage = function (callback: Function) {
+
+    }
+
+    wx.offShareAppMessage = function (callback: Function) {
+
+    }
+    //=========================================================================
+
+
+    //=========================================================================
+    //广告
+    //=========================================================================
+    wx.createRewardedVideoAd = function (obj: any): any {
+        console.log("------【FB Instant】 createRewardedVideoAd-------")
+        console.log(obj)
+
+        if (typeof FBInstant == "undefined") return null;
+
+        return new QQCM_RewardedVideoAd(obj);
+    }
+
+    wx.createBannerAd = function (obj: any): any {
+        console.log("------【FB Instant】 createBannerAd-------")
+        console.log(obj)
+
+        if (typeof FBInstant == "undefined") return null;
+
+        return new QQCM_BannerAd(obj);
+    }
+    //=========================================================================
+
+    //=========================================================================
+    //虚拟支付
+    //=========================================================================
+    //@see https://hudong.qq.com/docs/engine/pay/item/purchase.html
+    wx.requestMidasPayment = function (obj: any): void {
+        console.log("------【FB Instant】 requestMidasPayment-------")
+        if (!obj) return;
+
+        console.log(JSON.stringify(obj))
+
+        if (typeof FBInstant == "undefined") return;
+
+        let successFun: Function = obj ? obj["success"] : null;
+        let failFun: Function = obj ? obj["fail"] : null;
+        let completeFun: Function = obj ? obj["complete"] : null;
+
+
+        let itemID: number = obj["offerId"];
+        let count: number = obj["buyQuantity"];
+
+        let itemList: Array<any> = [{
+            "itemId": itemID,
+            "itemNum": count
+        }];
+
+        let oriv: number = 1;
+        if (GameValues.orientation == Orientation.ROTATED_LEFT) {
+            oriv = 3;
+        } else if (GameValues.orientation == Orientation.ROTATED_RIGHT) {
+            oriv = 2;
+        }
+
+        // gameOrientation  //1（默认，竖屏）2.横屏（home键在左边）3.横屏 （home键在右边）
+        // transparent 是否透明
+        // itemList 道具列表
+        // callback 形如 function(errCode,data)
+
+        BK.QQ.qPayPurchase(oriv, true, itemList, function (errCode, data) {
+            console.log("qPayPurchase errCode:" + errCode + " data:" + JSON.stringify(data));
+
+            // errCode == 0代表成功.其他错误码请查阅本节最下
+            if (errCode == 0) {
+                if (successFun) successFun(data);
+                if (completeFun) completeFun();
+            } else {
+                if (failFun) failFun(errCode);
+                if (completeFun) completeFun();
+            }
+        });
+    }
+    //=========================================================================
+
+
+    //发送请求
+    wx.request = function (obj: any): void {
+        
+    }
+
+}
+
+
+
+
+
+/**
+ * 厘米秀视频广告
+ */
+class QQCM_RewardedVideoAd {
+
+    //广告id
+    private _adUnitId: string;
+
+    //激励视频广告场景 0.游戏页面挂件广告 1.游戏结算页广告 2.游戏任务广告  3.游戏复活广告 
+    public videoType: number = 2;
+
+
+    //广告
+    private _theAd: any;
+
+    constructor(obj: any) {
+        if (obj) this._adUnitId = obj["adUnitId"];
+
+        this.fetchAd();
+    }
+
+    /**
+     * 拉取广告
+     */
+    private fetchAd(): void {
+        console.log("BK.Advertisement.fetchVideoAd")
+        console.log(BK.Advertisement.fetchVideoAd);
+
+        BK.Advertisement.fetchVideoAd(this.videoType, this.fetchAdCallback.bind(this));
+    }
+
+    private fetchAdCallback(retCode, msg, handle) {
+        //retCode 返回错误码 
+        //msg       返回信息 
+        //handle  广告句柄 
+
+        console.log("【FB Instant】fetchAdCallback 拉取视频广告:" + retCode + " msg:" + msg)
+        console.log(JSON.stringify(handle));
+
+        //返回码0表示成功 
+        if (retCode == 0) {
+            this._theAd = handle;
+
+            //2.监听事件 
+            this._theAd.setEventCallack(
+                (code, msg) => {
+                    //关闭游戏（不再使用不需要监听） 
+                },
+
+                (code, msg) => {
+                    //达到看广告时长要求，可以下发奖励 
+                    this.doClose(true);
+                },
+
+                (code, msg) => {
+                    //关闭视频webview 
+                    this.doClose(false);
+                },
+
+                (code, msg) => {
+                    //开始播放视频 
+                }
+            );
+
+            this.doLoaded();
+        } else {
+            console.log("拉取视频广告失败:" + retCode + " msg:" + msg)
+            this.doError(retCode, msg);
+        }
+    }
+
+
+    public load(): void {
+
+    }
+
+    /**
+     * 显示广告
+     */
+    public show(): void {
+        //3.跳转至播放界面 
+        if (this._theAd) this._theAd.jump();
+    }
+
+    private _onLoadCallbacks: Array<Function> = [];
+
+
+    /**
+     * 
+     */
+    private doLoaded(): void {
+        let res: object = {
+        }
+
+        this._onLoadCallbacks.forEach((fun: Function) => {
+            fun(res);
+        });
+    }
+
+
+    public onLoad(callback: Function): void {
+        if (!callback) return;
+
+        if (this._onLoadCallbacks.indexOf(callback) == -1) {
+            this._onLoadCallbacks.push(callback);
+        }
+    }
+
+    public offLoad(callback: Function): void {
+        let index: number = this._onLoadCallbacks.indexOf(callback);
+        if (index >= 0) this._onLoadCallbacks.splice(index, 1);
+    }
+
+
+    private _onErrorCallbacks: Array<Function> = [];
+
+
+    /**
+     * 
+     */
+    private doError(errCode: number, errMsg: string): void {
+        let res: object = {
+            errMsg: errMsg,
+            errCode: errCode
+        }
+
+        this._onErrorCallbacks.forEach((fun: Function) => {
+            fun(res);
+        });
+    }
+
+
+    public onError(callback: Function): void {
+        if (!callback) return;
+
+        if (this._onErrorCallbacks.indexOf(callback) == -1) {
+            this._onErrorCallbacks.push(callback);
+        }
+    }
+
+    public offError(callback: Function): void {
+        let index: number = this._onErrorCallbacks.indexOf(callback);
+        if (index >= 0) this._onErrorCallbacks.splice(index, 1);
+    }
+
+
+    private _onCloseCallbacks: Array<Function> = [];
+
+
+    /**
+     * 
+     * @param completed     是否已完成播放
+     */
+    private doClose(completed: boolean): void {
+        let res: object = {
+            isEnded: completed
+        }
+
+        this._onCloseCallbacks.forEach((fun: Function) => {
+            fun(res);
+        });
+    }
+
+    public onClose(callback: Function): void {
+        if (!callback) return;
+
+        if (this._onCloseCallbacks.indexOf(callback) == -1) {
+            this._onCloseCallbacks.push(callback);
+        }
+    }
+
+    public offClose(callback: Function): void {
+        let index: number = this._onCloseCallbacks.indexOf(callback);
+        if (index >= 0) this._onCloseCallbacks.splice(index, 1);
+    }
+
+}
+
+
+
+/**
+ * 厘米秀banner广告
+ */
+class QQCM_BannerAd {
+    //刷新间隔时间
+    private static REFRESH_DELAY: number = 30000;
+    //最小间隔时间
+    private static MIN_DELAY: number = 10000;
+
+    //广告id
+    private _adUnitId: string;
+
+    //激励视频广告场景 0.游戏页面挂件广告 1.游戏结算页广告 2.游戏任务广告  3.游戏复活广告 
+    public videoType: number = 2;
+
+
+    //广告
+    private _theAd: any;
+
+
+    private _fetchInterval: number = 0;
+
+    constructor(obj: any) {
+        if (obj) this._adUnitId = obj["adUnitId"];
+
+        this.fetchAd();
+        var self = this;
+        //每隔20秒刷新一次广告
+        setInterval(() => {
+            console.log("刷新banner广告");
+            //刷新广告
+            self.removeAd();
+            self.fetchAd();
+        }, QQCM_BannerAd.REFRESH_DELAY);
+    }
+
+
+    private _lastFetachTime: Date;
+
+    /**
+     * 拉取广告
+     */
+    private fetchAd(): void {
+        if (this._destroied) return;
+
+        // console.log("请求banner广告1");
+
+        if (this._lastFetachTime) {
+            let now: number = new Date().getTime();
+            if (now - this._lastFetachTime.getTime() < QQCM_BannerAd.MIN_DELAY) {
+                console.log("间隔时间太小");
+                return;
+            }
+        }
+
+        this._lastFetachTime = new Date();
+
+        // console.log("请求banner广告2");
+        BK.Advertisement.fetchBannerAd(this.fetchAdCallback.bind(this));
+    }
+
+    private fetchAdCallback(retCode, msg, handle) {
+        if (this._destroied) return;
+
+        // console.log("请求banner广告 callback");
+
+        //retCode 返回错误码 
+        //msg       返回信息 
+        //handle  广告句柄 
+
+        // console.log("【FB Instant】fetchAdCallback 拉取banner广告:" + retCode + " msg:" + msg)
+        // console.log(JSON.stringify(handle));
+
+        //返回码0表示成功 
+        if (retCode == 0) {
+            this._theAd = handle;
+
+            if (this._isShowing) {
+                //默认显示广告
+                this.show();
+            }
+
+            //2.2 开发者主动关闭广告。
+            //adBannerHandle.close(); 
+            //2.3 开发者监听事件
+            this._theAd.onClickContent(() => {
+                //用户点击了落地页
+
+                //刷新广告
+                this.removeAd();
+                this.fetchAd();
+            });
+
+            this._theAd.onClickClose(() => {
+                this.removeAd();
+            });
+
+
+            this.doLoaded();
+        } else {
+            // console.log("拉取banner广告失败:" + retCode + " msg:" + msg)
+            this.doError(retCode, msg);
+        }
+    }
+
+
+
+
+    private _isShowing: boolean = true;
+
+
+    /**
+     * 显示广告
+     */
+    public show(): void {
+        if (this._destroied) return;
+        this._isShowing = true;
+
+        //3.跳转至播放界面 
+        if (this._theAd) {
+            this._theAd.show((succCode, msg, handle) => {
+                if (succCode == 0) {
+                    this.doResize();
+                } else {
+                    console.log("展示失败 msg:" + msg);
+                }
+            });
+        } else {
+            this.fetchAd();
+        }
+    }
+
+
+    private removeAd(): void {
+        try {
+            if (this._theAd) {
+                this._theAd.close();
+            }
+        } catch (error) {
+
+        }
+
+        this._theAd = null;
+    }
+
+
+    public hide(): void {
+        if (this._destroied) return;
+        this._isShowing = false;
+
+        // console.log("隐藏banner广告");
+
+        this.removeAd();
+    }
+
+
+    private _destroied: boolean = false;
+
+    /**
+     * 释放
+     */
+    public destroy(): void {
+        if (this._destroied) return;
+        this._destroied = true;
+
+        this.removeAd();
+
+        this._onResizeCallbacks = [];
+        this._onErrorCallbacks = [];
+        this._onLoadCallbacks = [];
+
+        clearInterval(this._fetchInterval);
+    }
+
+    private _onResizeCallbacks: Array<Function> = [];
+
+
+    private _adSize: object;
+    /**
+     * 
+     */
+    private doResize(): void {
+        // banner广告统一长宽比例 582 ： 166 横竖屏下统一位于屏幕底部居中位置。
+        // 竖屏下长为 屏幕宽度的 78% 横屏下长为 屏幕宽度的 44%
+        if (!this._adSize) {
+            this._adSize = {};
+
+            let screenSize: cc.Size = cc.view.getFrameSize();
+            //TODO:DEBUG 暂时只支持竖屏
+            this._adSize["width"] = screenSize.width * 0.78;
+            this._adSize["height"] = screenSize.width * 0.78 * 166 / 582;
+        }
+
+        this._onResizeCallbacks.forEach((fun: Function) => {
+            fun(this._adSize);
+        });
+    }
+
+
+    public onResize(callback: Function): void {
+        if (this._destroied) return;
+
+        if (!callback) return;
+
+        if (this._onResizeCallbacks.indexOf(callback) == -1) {
+            this._onResizeCallbacks.push(callback);
+        }
+    }
+
+    public offResize(callback: Function): void {
+        if (this._destroied) return;
+
+        let index: number = this._onResizeCallbacks.indexOf(callback);
+        if (index >= 0) this._onResizeCallbacks.splice(index, 1);
+    }
+
+
+
+    private _onLoadCallbacks: Array<Function> = [];
+
+
+    /**
+     * 
+     */
+    private doLoaded(): void {
+        let res: object = {
+        }
+
+        this._onLoadCallbacks.forEach((fun: Function) => {
+            fun(res);
+        });
+    }
+
+
+    public onLoad(callback: Function): void {
+        if (!callback) return;
+
+        if (this._onLoadCallbacks.indexOf(callback) == -1) {
+            this._onLoadCallbacks.push(callback);
+        }
+    }
+
+    public offLoad(callback: Function): void {
+        let index: number = this._onLoadCallbacks.indexOf(callback);
+        if (index >= 0) this._onLoadCallbacks.splice(index, 1);
+    }
+
+
+    private _onErrorCallbacks: Array<Function> = [];
+
+
+    /**
+     * 
+     */
+    private doError(errCode: number, errMsg: string): void {
+        let res: object = {
+            errMsg: errMsg,
+            errCode: errCode
+        }
+
+        this._onErrorCallbacks.forEach((fun: Function) => {
+            fun(res);
+        });
+    }
+
+
+    public onError(callback: Function): void {
+        if (!callback) return;
+
+        if (this._onErrorCallbacks.indexOf(callback) == -1) {
+            this._onErrorCallbacks.push(callback);
+        }
+    }
+
+    public offError(callback: Function): void {
+        let index: number = this._onErrorCallbacks.indexOf(callback);
+        if (index >= 0) this._onErrorCallbacks.splice(index, 1);
+    }
+
+
+}
+
+/**
+ * 厘米秀视频广告
+ */
+// class QQCM_RewardedVideoAd {
+
+//     //广告id
+//     private _adUnitId: string;
+
+//     //激励视频广告场景 0.游戏页面挂件广告 1.游戏结算页广告 2.游戏任务广告  3.游戏复活广告 
+//     public videoType: number = 2;
+
+
+//     //广告
+//     private _theAd: any;
+
+
+//     private _isReady: boolean = false;
+
+//     constructor(obj: any) {
+//         if (obj) this._adUnitId = obj["adUnitId"];
+
+//         this.fetchAd();
+//     }
+
+//     /**
+//      * 拉取广告
+//      */
+//     private fetchAd(): void {
+//         this._theAd = BK.Advertisement.createVideoAd();
+//         this._isReady = false;
+
+//         console.log("请求视频广告", this._theAd);
+
+//         this._theAd.onLoad(this.doLoaded.bind(this));
+
+//         this._theAd.onError((err) => {
+//             console.log("视频广告获取失败");
+//             this.doError(err.code, err.msg)
+//         });
+
+//         this._theAd.onPlayFinish(() => {
+//             this.doClose(true);
+//         })
+//     }
+
+
+//     public load(): void {
+
+//     }
+
+//     /**
+//      * 显示广告
+//      */
+//     public show(): void {
+//         //3.跳转至播放界面 
+//         if (this._theAd && this._isReady) {
+//             this._theAd.show();
+//         } else {
+//             this.doError();
+//         }
+//     }
+
+//     private _onLoadCallbacks: Array<Function> = [];
+
+
+//     /**
+//      * 
+//      */
+//     private doLoaded(): void {
+//         console.log("视频广告获取成功");
+//         this._isReady = true;
+
+//         let res: object = {
+//         }
+
+//         this._onLoadCallbacks.forEach((fun: Function) => {
+//             fun(res);
+//         });
+//     }
+
+
+//     public onLoad(callback: Function): void {
+//         if (!callback) return;
+
+//         if (this._onLoadCallbacks.indexOf(callback) == -1) {
+//             this._onLoadCallbacks.push(callback);
+//         }
+//     }
+
+//     public offLoad(callback: Function): void {
+//         let index: number = this._onLoadCallbacks.indexOf(callback);
+//         if (index >= 0) this._onLoadCallbacks.splice(index, 1);
+//     }
+
+
+//     private _onErrorCallbacks: Array<Function> = [];
+
+
+//     /**
+//      * 
+//      */
+//     private doError(errCode: number = 0, errMsg: string = null): void {
+//         let res: object = {
+//             errMsg: errMsg,
+//             errCode: errCode
+//         }
+
+//         this._onErrorCallbacks.forEach((fun: Function) => {
+//             fun(res);
+//         });
+//     }
+
+
+//     public onError(callback: Function): void {
+//         if (!callback) return;
+
+//         if (this._onErrorCallbacks.indexOf(callback) == -1) {
+//             this._onErrorCallbacks.push(callback);
+//         }
+//     }
+
+//     public offError(callback: Function): void {
+//         let index: number = this._onErrorCallbacks.indexOf(callback);
+//         if (index >= 0) this._onErrorCallbacks.splice(index, 1);
+//     }
+
+
+//     private _onCloseCallbacks: Array<Function> = [];
+
+
+//     /**
+//      * 
+//      * @param completed     是否已完成播放
+//      */
+//     private doClose(completed: boolean): void {
+//         //重新获取广告
+//         this.fetchAd();
+
+//         let res: object = {
+//             isEnded: completed
+//         }
+
+//         this._onCloseCallbacks.forEach((fun: Function) => {
+//             fun(res);
+//         });
+//     }
+
+//     public onClose(callback: Function): void {
+//         if (!callback) return;
+
+//         if (this._onCloseCallbacks.indexOf(callback) == -1) {
+//             this._onCloseCallbacks.push(callback);
+//         }
+//     }
+
+//     public offClose(callback: Function): void {
+//         let index: number = this._onCloseCallbacks.indexOf(callback);
+//         if (index >= 0) this._onCloseCallbacks.splice(index, 1);
+//     }
+
+// }
+
+
+
+// /**
+//  * 厘米秀banner广告
+//  */
+// class QQCM_BannerAd {
+//     //刷新间隔时间
+//     // private static REFRESH_DELAY: number = 30000;
+//     //最小间隔时间
+//     private static MIN_DELAY: number = 10000;
+
+//     //广告id
+//     private _adUnitId: string;
+
+//     //广告
+//     private _theAd: any;
+
+
+//     constructor(obj: any) {
+//         if (obj) this._adUnitId = obj["adUnitId"];
+
+//         this.fetchAd();
+//     }
+
+
+//     private _lastFetachTime: Date;
+
+//     /**
+//      * 拉取广告
+//      */
+//     private fetchAd(): void {
+//         if (this._destroied) return;
+
+//         // console.log("请求banner广告1");
+
+//         // if (this._lastFetachTime) {
+//         //     let now: number = new Date().getTime();
+//         //     if (now - this._lastFetachTime.getTime() < QQCM_BannerAd.MIN_DELAY) {
+//         //         console.log("间隔时间太小");
+//         //         return;
+//         //     }
+//         // }
+//         // this._lastFetachTime = new Date();
+
+//         //@see https://hudong.qq.com/docs/engine/api-new/mqq/advertisement/advertisement-banner.html
+//         // console.log("请求banner广告2");
+//         this._theAd = BK.Advertisement.createBannerAd({
+//             // "videwId":1002
+//             "videwId":1001
+//         });
+
+//         this._theAd.onLoad( ()=> {
+//             this.doLoaded();
+
+//             if (this._isShowing) {
+//                 //默认显示广告
+//                 this.show();
+//             }
+//         });
+//         this._theAd.onError( (err) => {
+//             this.doError(err.code, err.msg);
+//         });
+//     }
+
+
+//     private _isShowing: boolean = true;
+
+
+//     /**
+//      * 显示广告
+//      */
+//     public show(): void {
+//         console.log("@@@@@@@@@@@@@@@ banner show")
+
+//         if (this._destroied) return;
+//         this._isShowing = true;
+
+//         //3.跳转至播放界面 
+//         if (this._theAd) {
+//             this._theAd.show();
+//             this.doResize();
+//         }
+//     }
+
+
+//     public hide(): void {
+//         if (this._destroied) return;
+
+//         console.log("@@@@@@@@@@@@@@@ banner hide")
+
+//         this._isShowing = false;
+//         if (this._theAd)  this._theAd.hide();
+//     }
+
+
+//     private _destroied: boolean = false;
+
+//     /**
+//      * 释放
+//      */
+//     public destroy(): void {
+//         console.log("@@@@@@@@@@@@@@@ banner destory")
+
+//         if (this._destroied) return;
+//         this._destroied = true;
+
+//         if (this._theAd) {
+//             this._theAd.destory();
+//             this._theAd = null;
+//         }
+
+//         this._onResizeCallbacks = [];
+//         this._onErrorCallbacks = [];
+//         this._onLoadCallbacks = [];
+//     }
+
+//     private _onResizeCallbacks: Array<Function> = [];
+
+
+//     private _adSize: object;
+//     /**
+//      * 
+//      */
+//     private doResize(): void {
+//         // banner广告统一长宽比例 582 ： 166 横竖屏下统一位于屏幕底部居中位置。
+//         // 竖屏下长为 屏幕宽度的 78% 横屏下长为 屏幕宽度的 44%
+//         if (!this._adSize) {
+//             this._adSize = {};
+
+//             let screenSize: cc.Size = cc.view.getFrameSize();
+//             //TODO:DEBUG 暂时只支持竖屏
+//             this._adSize["width"] = screenSize.width * 0.78;
+//             this._adSize["height"] = screenSize.width * 0.78 * 166 / 582;
+//         }
+
+//         this._onResizeCallbacks.forEach((fun: Function) => {
+//             fun(this._adSize);
+//         });
+//     }
+
+
+//     public onResize(callback: Function): void {
+//         if (this._destroied) return;
+
+//         if (!callback) return;
+
+//         if (this._onResizeCallbacks.indexOf(callback) == -1) {
+//             this._onResizeCallbacks.push(callback);
+//         }
+//     }
+
+//     public offResize(callback: Function): void {
+//         if (this._destroied) return;
+
+//         let index: number = this._onResizeCallbacks.indexOf(callback);
+//         if (index >= 0) this._onResizeCallbacks.splice(index, 1);
+//     }
+
+
+
+//     private _onLoadCallbacks: Array<Function> = [];
+
+
+//     /**
+//      * 
+//      */
+//     private doLoaded(): void {
+//         let res: object = {
+//         }
+
+//         this._onLoadCallbacks.forEach((fun: Function) => {
+//             fun(res);
+//         });
+//     }
+
+
+//     public onLoad(callback: Function): void {
+//         if (!callback) return;
+
+//         if (this._onLoadCallbacks.indexOf(callback) == -1) {
+//             this._onLoadCallbacks.push(callback);
+//         }
+//     }
+
+//     public offLoad(callback: Function): void {
+//         let index: number = this._onLoadCallbacks.indexOf(callback);
+//         if (index >= 0) this._onLoadCallbacks.splice(index, 1);
+//     }
+
+
+//     private _onErrorCallbacks: Array<Function> = [];
+
+
+//     /**
+//      * 
+//      */
+//     private doError(errCode: number = 0, errMsg: string = null): void {
+//         let res: object = {
+//             errMsg: errMsg,
+//             errCode: errCode
+//         }
+
+//         this._onErrorCallbacks.forEach((fun: Function) => {
+//             fun(res);
+//         });
+//     }
+
+
+//     public onError(callback: Function): void {
+//         if (!callback) return;
+
+//         if (this._onErrorCallbacks.indexOf(callback) == -1) {
+//             this._onErrorCallbacks.push(callback);
+//         }
+//     }
+
+//     public offError(callback: Function): void {
+//         let index: number = this._onErrorCallbacks.indexOf(callback);
+//         if (index >= 0) this._onErrorCallbacks.splice(index, 1);
+//     }
+
+// }

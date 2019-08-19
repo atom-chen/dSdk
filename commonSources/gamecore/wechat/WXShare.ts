@@ -1,0 +1,295 @@
+import GameValues, { PlatformName } from "../base/GameValues";
+import DeerSDK from "../deer/DeerSDK";
+
+
+/**
+ * 微信分享相关接口
+ * 
+ */
+export default class WXShare {
+
+    private static _onShareAppMessageData: object = {
+        "fail": () => {
+            wx.showToast({
+                "title": "分享失败",
+                "icon": "none"  	    //有效值 "success", "loading", "none"	
+            });
+        }
+    };
+
+    /**
+     * 监听用户点击右上角菜单的“转发”按钮时触发的事件
+     * 
+     * @param title             分享title
+     * @param imageURL          分享的图片加载地址
+     * @param queryObj          分享携带参数
+     * 
+     * @see https://developers.weixin.qq.com/minigame/dev/document/share/wx.onShareAppMessage.html
+     */
+    static setOnShareAppMessage(title: string, imageURL: string, queryObj: object = null): void {
+        console.log("----  WXShare ----");
+        console.log("-  setOnShareAppMessage  -");
+
+        if (typeof wx == "undefined") return;
+
+        console.log(title, imageURL, queryObj)
+
+        if (title) WXShare._onShareAppMessageData["title"] = title;
+        if (imageURL) WXShare._onShareAppMessageData["imageUrl"] = imageURL;
+
+        if (queryObj) {
+            let dataV: string = "";
+            let keys: Array<string> = Object.keys(queryObj);
+            keys.forEach((key: string) => {
+                if (dataV != "") dataV += "&";
+                dataV += key + "=" + encodeURIComponent(queryObj[key]);
+            });
+
+            if (dataV != "") WXShare._onShareAppMessageData["query"] = dataV;
+        }
+
+        DeerSDK.instance.wx.onShareAppMessage(function (): object {
+            return WXShare._onShareAppMessageData;
+        });
+
+    }
+
+
+
+    private static _shareAppTime: number = 0;
+    private static _shareAppData: object;
+
+    /**
+     * 分享app
+     * 
+     * @param   title       分享的title
+     * @param   imageURL    分享的图片url
+     * @param   queryObj    分享携带数据
+     * @param   success     分享成功回调
+     * @param   fail        分享失败回调
+     * @param   useStrategy 是否使用分享策略。默认为true
+     * @param   shareIntent 分享类型
+     */
+    static shareApp(title: string,
+        imageURL: string,
+        queryObj: object = null,
+        success: Function = null,
+        fail: Function = null,
+        useStrategy: boolean = true,
+        shareIntent: ShareIntent = null
+    ): void {
+        // console.log("----  WX Share ----");
+        // console.log("-  shareApp  -");
+        // console.log("query obj is", queryObj);
+
+        if (typeof wx == "undefined") return;
+
+        //非微信平台，不使用分享策略
+        if (GameValues.currentPlatform != PlatformName.WECHAT) {
+            useStrategy = false;
+        }
+
+        //分享意图
+        if (!shareIntent) shareIntent = ShareIntent.REQUEST;
+
+        //记录分享开始时间
+        WXShare._shareAppTime = new Date().getTime();
+
+        WXShare._shareAppData = {
+            "title": title,
+            "imageUrl": imageURL,
+            "intent": shareIntent,
+            "success": (res) => {
+                WXShare._shareAppData = null;
+                if (success) success(res);
+            },
+            "fail": (err) => {
+                WXShare._shareAppData = null;
+                if (fail) fail(err);
+            },
+            "__us__": useStrategy
+        }
+
+        wx.onShow(WXShare.shareAppBackCallback.bind(WXShare));
+
+        if (queryObj) {
+            let dataV: string = "";
+            let keys: Array<string> = Object.keys(queryObj);
+            keys.forEach((key: string) => {
+                if (dataV != "") dataV += "&";
+                dataV += key + "=" + encodeURIComponent(queryObj[key]);
+            });
+
+            if (dataV != "") WXShare._shareAppData["query"] = dataV;
+        }
+
+        DeerSDK.instance.wx.shareAppMessage(WXShare._shareAppData);
+    }
+
+    //必须失败的概率
+    private static _mustFailRate: number = 0.5;
+    //成功多少次后必须失败
+    private static _mustFailCounter: number = 3;
+
+    //分享次数
+    private static _shareTimes: number = 0;
+
+
+    private static shareAppBackCallback(): void {
+        wx.offShow(WXShare.shareAppBackCallback.bind(WXShare));
+
+        setTimeout(() => {
+            if (!WXShare._shareAppData) return;
+
+            let success: Function = WXShare._shareAppData["success"];
+            let fail: Function = WXShare._shareAppData["fail"];
+
+            //检查是否使用策略
+            if (WXShare._shareAppData["__us__"] === false) {
+                success();
+                return;
+            }
+
+            //必须失败
+            let mustFail: Function = function (): void {
+                WXShare._mustFailCounter = Math.floor(2 + Math.random() * 3);
+
+                //假提示
+                let tips: Array<string> = ["请分享到群", "请分享到不同的群", "请换个好友分享试试"];
+                let tip: string = tips[Math.floor(Math.random() * tips.length)];
+
+                wx.showToast({
+                    "title": tip,
+                    "icon": "none"  	    //有效值 "success", "loading", "none"	
+                });
+
+                fail();
+            }
+
+            //走随机策略
+            let t: number = new Date().getTime();
+            //2秒以内，算分享失败
+            if (t - WXShare._shareAppTime < 2000) {
+                fail();
+            } else {
+                //获取今日分享次数
+                // let sharedTimes: number = Utils.toInt(GameManager.dataManager.getData("__wxs_times__"));
+                // sharedTimes++;
+                // 写入数据
+                // GameManager.dataManager.setData("__wxs_times__", sharedTimes, true, true);
+                WXShare._shareTimes++;
+                let sharedTimes = WXShare._shareTimes;
+
+                if (sharedTimes == 1) {
+                    //第一次必须失败
+                    mustFail();
+                } else if (sharedTimes == 2) {
+                    //第一次必须成功
+                    success();
+                } else {
+                    //如果可以分享，而且是线上版本
+                    let rate: number = WXShare._mustFailRate;
+
+                    //检查是否可以使用宽松策略
+                    if (!DeerSDK.instance.canUseEasingPolicy) {
+                        rate = 0.1;
+                    }
+
+                    if (Math.random() <= WXShare._mustFailRate) {
+                        mustFail();
+                    } else if (WXShare._mustFailCounter <= 0) {
+                        mustFail();
+                    } else {
+                        WXShare._mustFailCounter--;
+                        success();
+                    }
+                }
+            }
+        }, 500);
+    }
+
+
+
+    /**
+     * 分享到群
+     * 
+     * @param   title       分享的title
+     * @param   imageURL    分享的图片url
+     * @param   queryObj    分享携带数据
+     * @param   callback    返回回调。接受一个string类型参数，为shareTicket
+     */
+    static shareAppToGroup(title: string, imageURL: string, queryObj: object = null, callback: Function = null): void {
+        console.log("----  WXShare ----");
+        console.log("-  shareAppToGroup  -");
+
+        if (typeof wx == "undefined") return;
+
+        try {
+            let obj: object = {
+                title: title,
+                imageUrl: imageURL,
+            }
+
+
+            if (callback != null) {
+                obj["success"] = function (res: object): void {
+                    let shareTicket: string = null;
+                    if (res && res["shareTickets"]) {
+                        shareTicket = res["shareTickets"][0];
+                    }
+
+                    callback.call(null, shareTicket);
+                }
+            }
+
+            if (queryObj) {
+                let dataV: string = "";
+                let keys: Array<string> = Object.keys(queryObj);
+                keys.forEach((key: string) => {
+                    if (dataV != "") dataV += "&";
+                    dataV += key + "=" + encodeURIComponent(queryObj[key]);
+                });
+
+                if (dataV != "") obj["query"] = dataV;
+            }
+
+            DeerSDK.instance.wx.shareAppMessage(obj);
+        } catch (error) {
+
+        }
+
+    }
+
+
+
+    /**
+     * 获取分享携带的数据
+     * 
+     */
+    public static getQueryData(): object {
+        console.log("----  WXShare ----");
+        console.log("-  getQueryData  -");
+
+        if (typeof wx == "undefined") return {};
+
+        let res: object = wx.getLaunchOptionsSync();
+        if (res) return res["query"];
+
+        return {}
+    }
+}
+
+
+/**
+ * 分享意图
+ * 
+ * 
+ * @see https://developers.facebook.com/docs/games/instant-games/sdk/fbinstant6.0/
+ */
+export enum ShareIntent {
+    "REQUEST" = "REQUEST",
+    "INVITE" = "INVITE",
+    "CHALLENGE" = "CHALLENGE",
+    "SHARE" = "SHARE",
+}
+

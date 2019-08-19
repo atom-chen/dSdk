@@ -1,0 +1,29 @@
+{
+    "extends": "./tsconfig_base.json",
+
+    "compilerOptions": {
+        // "outDir": "../release/1.9_platforms",
+        "outFile": "../release/1.9_platforms/mpon.js",
+        "module": "AMD",
+        "sourceMap": false,
+        "inlineSourceMap":false,
+        "removeComments": true,
+        "allowJs": false,
+        "experimentalDecorators": true,
+        "declaration":true
+    },
+
+    "include": [
+        "GameCoreEventNames.ts",
+        "platforms/Base.ts",
+        // "platforms/QQCM.ts",
+        // "platforms/JRTT.ts",
+        // "platforms/Oppo.ts",
+        // "platforms/FBIN.ts",
+        "platforms/IOS.ts"
+    ],
+
+    "exclude": [
+        
+    ]
+}

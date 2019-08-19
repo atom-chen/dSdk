@@ -1,0 +1,19 @@
+
+import DeerSDK from "./deer/DeerSDK"
+import DeerRequest from "./deer/DeerRequest"
+
+import WXShare from "./wechat/WXShare"
+
+/**
+ * 为laya导入所有类
+ */
+export default class ForLaya {
+
+  constructor() {
+      DeerSDK;
+      DeerRequest;
+
+      WXShare;
+  }
+
+}
